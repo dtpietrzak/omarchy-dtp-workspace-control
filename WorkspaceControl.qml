@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
+import Quickshell.Widgets
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
@@ -69,7 +70,7 @@ Item {
     return Math.max(1, Math.floor(Math.min(sw * 0.2, fit)))
   }
   readonly property int cardH: sw > 0 ? Math.round(cardW * sh / sw) : 1
-  readonly property int bandH: cardH + bandPadding * 2
+  readonly property int bandH: cardH + bandPadding + labels.implicitHeight + Style.spacing.md * 2
   // Where the band stops: on the bottom edge, or on top of a bar that is there.
   // Hyprland reports the space a bottom bar reserves, and 0 for a bar elsewhere.
   readonly property int bottomGap: {
@@ -77,12 +78,31 @@ Item {
     return ipc && ipc.reserved ? ipc.reserved[3] : 0
   }
   readonly property real restY: sh - bandH - bottomGap
+  // The band's background follows the bar's: opaque, glassy or none.
+  readonly property color bandColor: {
+    var bar = shell && shell.barConfig ? shell.barConfig : {}
+    var look = bar.background || (bar.transparent === true ? "none" : "opaque")
+    var color = Commons.Color.bar.background
+    if (look === "none") return "transparent"
+    if (look === "glassy") return Qt.rgba(color.r, color.g, color.b, Math.min(color.a, 0.35))
+    return color
+  }
   readonly property real travel: Math.max(1, sh - restY)
 
   // Window being dragged, and the cursor in window coordinates.
   property Item dragTile: null
   property point dragPos: Qt.point(0, 0)
   property int hoverId: -1
+  // Mini view under the pointer. It and the one being dragged stay at full
+  // opacity with a border, and every other mini view dims.
+  property Item hoverTile: null
+  readonly property Item highlightTile: dragTile || hoverTile
+  // Card under the pointer, when it isn't on one of the card's windows.
+  property int hoverCardId: -1
+  // The workspace set for selection, which every other one fades behind. A drag
+  // grabs the pointer, so during one the drag's position decides.
+  readonly property int selectedId: dragTile ? hoverId : (hoverTile ? hoverTile.wsId : hoverCardId)
+  readonly property int fadeMs: 700
 
   NumberAnimation {
     id: settle
@@ -116,6 +136,8 @@ Item {
     opened = false
     dragTile = null
     hoverId = -1
+    hoverTile = null
+    hoverCardId = -1
     animateTo(0, 140)
   }
 
@@ -166,12 +188,24 @@ Item {
   function goToHeld() {
     handBack.stop()
     var id = heldId
+    var address = heldWindow
     heldId = -1
+    heldWindow = ""
     if (id <= 0) return
     if (blockOf(id) === blockOf(activeId) && monitor) {
       Hyprland.dispatch('o.workspaces.focus(' + slotOf(id) + ', "' + monitor.name + '")')
     } else {
       Hyprland.dispatch('hl.dsp.focus({ workspace = "' + id + '" })')
+    }
+    if (address !== "") {
+      // Focusing a window warps the mouse to it. Leave the mouse where it is.
+      Hyprland.dispatch('(function()'
+        + ' local no_warps = hl.get_config("cursor.no_warps")'
+        + ' hl.config({ cursor = { no_warps = true } })'
+        + ' hl.dispatch(hl.dsp.focus({ window = "address:' + address + '" }))'
+        + ' hl.config({ cursor = { no_warps = no_warps } })'
+        + ' end)')
+      Hyprland.dispatch('hl.dsp.window.alter_zorder({ mode = "top", window = "address:' + address + '" })')
     }
   }
 
@@ -276,6 +310,13 @@ Item {
     if (!justDropped()) jump(id)
   }
 
+  // Jump to a mini view's workspace and bring that window to the front there.
+  function clickWindow(tile) {
+    if (justDropped()) return
+    jump(tile.wsId)
+    heldWindow = windowAddress(tile.modelData)
+  }
+
   function drop() {
     droppedAt = Date.now()
     var tile = dragTile
@@ -286,6 +327,7 @@ Item {
   }
 
   property int heldId: -1
+  property string heldWindow: ""
   readonly property string layerNamespace: "dtpietrzak-workspacecontrol"
 
   // In case the close event never arrives.
@@ -345,12 +387,6 @@ Item {
         }
       }
 
-      // Everything outside the band, above it and below it.
-      Rectangle {
-        anchors.fill: parent
-        color: "black"
-        opacity: 0.35 * root.progress
-      }
       // The panel covers the desktop, so a real window can't be grabbed directly.
       // A press on one starts the same drag as its mini view. A click closes.
       MouseArea {
@@ -386,14 +422,48 @@ Item {
         width: parent.width
         height: root.bandH
         y: root.sh + (root.restY - root.sh) * root.progress
-        color: Util.alpha(Commons.Color.background, 0.94)
+        color: root.bandColor
 
         // Keeps a click between two cards from closing the panel.
         MouseArea { anchors.fill: parent }
 
+        // Each workspace's number, centered above its card. The cards clip their
+        // contents, so the numbers are their own row.
+        Row {
+          id: labels
+          anchors.horizontalCenter: parent.horizontalCenter
+          anchors.bottom: cards.top
+          anchors.bottomMargin: Style.spacing.md
+          spacing: root.cardGap
+
+          Repeater {
+            model: ScriptModel { values: root.workspaceIds }
+
+            delegate: Text {
+              required property var modelData
+              readonly property bool active: modelData === root.activeId
+
+              opacity: root.selectedId > 0 && root.selectedId !== modelData ? 0.5 : 1
+              Behavior on opacity {
+                NumberAnimation { duration: Style.duration(root.fadeMs); easing.type: Easing.OutCubic }
+              }
+              width: root.cardW
+              horizontalAlignment: Text.AlignHCenter
+              textFormat: Text.PlainText
+              text: root.blockOf(modelData) === root.blockOf(root.activeId) ? root.slotOf(modelData) : modelData
+              color: active ? Commons.Color.accent : Commons.Color.foreground
+              font.family: Style.font.family
+              font.pixelSize: Style.font.body
+              font.bold: active
+            }
+          }
+        }
+
         Row {
           id: cards
-          anchors.centerIn: parent
+          anchors.horizontalCenter: parent.horizontalCenter
+          anchors.bottom: parent.bottom
+          anchors.bottomMargin: root.bandPadding
           spacing: root.cardGap
 
           Repeater {
@@ -406,13 +476,20 @@ Item {
               property alias tiles: tileRepeater
               readonly property bool active: wsId === root.activeId
               readonly property bool hovered: root.hoverId === wsId && !!root.dragTile && root.dragTile.wsId !== wsId
+              readonly property bool selected: root.selectedId === wsId
 
+              Component.onDestruction: if (root.hoverCardId === wsId) root.hoverCardId = -1
+
+              opacity: root.selectedId > 0 && !selected ? 0.5 : 1
+              Behavior on opacity {
+                NumberAnimation { duration: Style.duration(root.fadeMs); easing.type: Easing.OutCubic }
+              }
               width: root.cardW
               height: root.cardH
               clip: true
               radius: Style.cornerRadius
-              color: hovered ? Style.selectedAccentFill : (cardMouse.containsMouse ? Style.hoverFill : Style.normalFill)
-              border.width: Math.max(1, Style.space(2))
+              color: hovered ? Style.selectedAccentFill : (selected ? Style.hoverFill : Style.normalFill)
+              border.width: active || selected ? Math.max(1, Style.space(2)) : Style.spacing.hairline
               border.color: hovered || active ? Commons.Color.accent : Style.normalBorderColor
 
               MouseArea {
@@ -420,6 +497,12 @@ Item {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
+                function markHovered() { if (root.opened) root.hoverCardId = card.wsId }
+                onContainsMouseChanged: {
+                  if (containsMouse) markHovered()
+                  else if (root.hoverCardId === card.wsId) root.hoverCardId = -1
+                }
+                onPositionChanged: markHovered()
                 onClicked: root.clickWorkspace(card.wsId)
               }
 
@@ -443,12 +526,22 @@ Item {
                   width: placed ? Math.max(2, ipc.size[0] * ratio) : 0
                   height: placed ? Math.max(2, ipc.size[1] * ratio) : 0
                   z: (ipc.floating ? 1000 : 0) + stackIndex
+                  // Only inside the selected workspace. Every other one fades as a
+                  // whole, and dimming its windows as well would compound.
+                  opacity: root.highlightTile && root.highlightTile !== tile && root.selectedId === wsId ? 0.5 : 1
+                  Behavior on opacity {
+                    NumberAnimation { duration: Style.duration(root.fadeMs); easing.type: Easing.OutCubic }
+                  }
 
-                  Component.onDestruction: if (root.dragTile === tile) root.dragTile = null
+                  Component.onDestruction: {
+                    if (root.dragTile === tile) root.dragTile = null
+                    if (root.hoverTile === tile) root.hoverTile = null
+                  }
 
                   Rectangle {
                     anchors.fill: parent
                     color: Commons.Color.background
+                    radius: Style.cornerRadius
                     border.width: 1
                     border.color: Style.normalBorderColor
                   }
@@ -463,16 +556,32 @@ Item {
                     font.pixelSize: Math.max(Style.font.caption, Math.min(tile.height * 0.5, Style.font.heading))
                   }
 
-                  ScreencopyView {
-                    id: shot
+                  ClippingRectangle {
                     anchors.fill: parent
-                    captureSource: root.shown ? tile.modelData.wayland : null
-                    live: true
-                    constraintSize: Qt.size(Math.ceil(tile.width * 2), Math.ceil(tile.height * 2))
+                    color: "transparent"
+                    radius: Style.cornerRadius
+
+                    ScreencopyView {
+                      id: shot
+                      anchors.fill: parent
+                      captureSource: root.shown ? tile.modelData.wayland : null
+                      live: true
+                      constraintSize: Qt.size(Math.ceil(tile.width * 2), Math.ceil(tile.height * 2))
+                    }
+                  }
+
+                  Rectangle {
+                    anchors.fill: parent
+                    visible: root.highlightTile === tile
+                    color: "transparent"
+                    radius: Style.cornerRadius
+                    border.width: 1
+                    border.color: Commons.Color.accent
                   }
 
                   MouseArea {
                     anchors.fill: parent
+                    hoverEnabled: true
                     cursorShape: pressed ? Qt.ClosedHandCursor : Qt.PointingHandCursor
                     property point pressPoint
 
@@ -480,8 +589,13 @@ Item {
                       return mapToItem(panel.contentItem, mouse.x, mouse.y)
                     }
 
+                    onContainsMouseChanged: if (!containsMouse && root.hoverTile === tile) root.hoverTile = null
                     onPressed: mouse => pressPoint = Qt.point(mouse.x, mouse.y)
                     onPositionChanged: mouse => {
+                      if (!pressed) {
+                        if (root.opened) root.hoverTile = tile
+                        return
+                      }
                       var dx = mouse.x - pressPoint.x
                       var dy = mouse.y - pressPoint.y
                       if (root.dragTile !== tile && dx * dx + dy * dy < 36) return
@@ -490,25 +604,13 @@ Item {
                     }
                     onReleased: {
                       if (root.dragTile === tile) root.drop()
-                      else if (containsMouse) root.clickWorkspace(card.wsId)
+                      else if (containsMouse) root.clickWindow(tile)
                     }
                     onCanceled: if (root.dragTile === tile) root.dragTile = null
                   }
                 }
               }
 
-              Text {
-                anchors.left: parent.left
-                anchors.top: parent.top
-                anchors.margins: Style.spacing.md
-                z: 2000
-                textFormat: Text.PlainText
-                text: root.blockOf(card.wsId) === root.blockOf(root.activeId) ? root.slotOf(card.wsId) : card.wsId
-                color: card.active ? Commons.Color.accent : Commons.Color.foreground
-                font.family: Style.font.family
-                font.pixelSize: Style.font.body
-                font.bold: card.active
-              }
             }
           }
         }

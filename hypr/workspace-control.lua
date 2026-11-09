@@ -57,3 +57,17 @@ hl.gesture({
 
 -- The panel follows the fingers, so a compositor fade would only lag behind.
 hl.layer_rule({ match = { namespace = "^dtpietrzak-workspacecontrol$" }, no_anim = true, animation = "none" })
+
+-- A glassy bar is drawn see-through with Hyprland blurring what is behind it, and
+-- the panel's background follows the bar's, so it needs the same blur. Omarchy
+-- reloads Hyprland whenever this toggle file comes or goes.
+local state_home = os.getenv("XDG_STATE_HOME") or (os.getenv("HOME") .. "/.local/state")
+local glassy = io.open(state_home .. "/omarchy/toggles/hypr/bar-glassy.lua")
+if glassy then
+  glassy:close()
+  hl.layer_rule({ match = { namespace = "^dtpietrzak-workspacecontrol$" }, blur = true, ignore_alpha = 0.3 })
+end
+
+-- Omarchy warps the mouse to a window whenever a workspace is focused, which the
+-- panel does both when it jumps and when it closes. Leave the mouse where it is.
+hl.config({ cursor = { warp_on_change_workspace = 0 } })
