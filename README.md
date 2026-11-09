@@ -2,7 +2,7 @@
 
 A four finger swipe up on Omarchy (Hyprland 0.56+) pulls a band of workspaces up from the bottom of the screen, with a live mini view of the windows on each one.
 
-![The workspace panel along the bottom with a mini view of each workspace](screenshots/workspace-control.png)
+![Opening the workspace panel and dragging windows onto workspaces](screenshots/workspace-control.gif)
 
 - The band follows your fingers. Let go after 20% of the way and it finishes the trip and stays on the bottom edge of the screen, or just above the bar if the bar is at the bottom. Let go sooner and it drops back.
 - Click a workspace to jump to it. The band slides back down as you land there.
