@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "dtpietrzak.workspacecontrol",
+  "name": "Workspace control",
+  "version": "1.0.0",
+  "author": "dtpietrzak",
+  "description": "Four finger swipe panel showing every workspace and its windows",
+  "kinds": ["panel"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "panel": "WorkspaceControl.qml"
+  }
+}
