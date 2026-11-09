@@ -70,8 +70,12 @@ Item {
   }
   readonly property int cardH: sw > 0 ? Math.round(cardW * sh / sw) : 1
   readonly property int bandH: cardH + bandPadding * 2
-  // Where the band stops: this far off the bottom of the screen.
-  readonly property int bottomGap: 10
+  // Where the band stops: on the bottom edge, or on top of a bar that is there.
+  // Hyprland reports the space a bottom bar reserves, and 0 for a bar elsewhere.
+  readonly property int bottomGap: {
+    var ipc = monitor ? monitor.lastIpcObject : null
+    return ipc && ipc.reserved ? ipc.reserved[3] : 0
+  }
   readonly property real restY: sh - bandH - bottomGap
   readonly property real travel: Math.max(1, sh - restY)
 
