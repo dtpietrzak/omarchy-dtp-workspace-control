@@ -35,6 +35,7 @@ BarWidget {
 
   WorkspaceApps { id: workspaceApps }
   WorkspaceSettings { id: prefs }
+  Commons.Translations { id: strings; directory: Qt.resolvedUrl("i18n") }
 
   // Connector -> block, from the file Hyprland keeps them in.
   property var blocks: ({})
@@ -667,7 +668,7 @@ BarWidget {
           y: menuRows.panelFirst ? panelRow.height : 0
           width: parent.width
           height: implicitHeight
-          label: "Settings"
+          label: strings.t("menu.settings")
           onClicked: {
             root.menuShowsSettings = true
             Qt.callLater(root.placeMenu)
@@ -688,7 +689,7 @@ BarWidget {
           y: menuRows.panelFirst ? 0 : settingsRow.height
           width: parent.width
           height: implicitHeight
-          label: "Open workspace panel"
+          label: strings.t("menu.openPanel")
           onClicked: {
             root.menuOpen = false
             root.togglePanel()

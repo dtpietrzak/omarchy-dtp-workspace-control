@@ -188,7 +188,7 @@ Item {
             z: placed ? (client.floating ? 1000 : 0) + client.stackIndex : 0
             opacity: root.hoverTile && root.hoverTile !== tile ? 0.5 : 1
             Behavior on opacity {
-              NumberAnimation { duration: Style.duration(700); easing.type: Easing.OutCubic }
+              NumberAnimation { duration: Style.duration(300); easing.type: Easing.OutCubic }
             }
 
             ClippingRectangle {

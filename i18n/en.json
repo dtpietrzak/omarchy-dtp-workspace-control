@@ -1,0 +1,13 @@
+{
+  "settings.title": "Settings",
+  "settings.barWorkspaces": "Workspaces on the bar",
+  "settings.panelWorkspaces": "Workspaces in the panel",
+  "settings.barIcons": "App icons on the bar",
+  "settings.hoverCards": "Preview workspaces on hover",
+  "settings.minimizedButton": "Minimized windows button",
+  "settings.hotkeys": "Super+Shift+arrow hotkeys",
+  "settings.swipe": "4 finger swipe up",
+  "minimized.empty": "No minimized windows",
+  "menu.settings": "Settings",
+  "menu.openPanel": "Open workspace panel"
+}

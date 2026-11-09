@@ -12,6 +12,8 @@ Item {
   // A setting Hyprland only reads when its config loads has changed.
   signal reloadNeeded()
 
+  Commons.Translations { id: strings; directory: Qt.resolvedUrl("i18n") }
+
   readonly property int edge: Style.spacing.md
 
   focus: true
@@ -58,7 +60,7 @@ Item {
       topPadding: root.edge / 2
       bottomPadding: root.edge / 2
       textFormat: Text.PlainText
-      text: "Settings"
+      text: strings.t("settings.title")
       color: Commons.Color.foreground
       font.family: Style.font.family
       font.pixelSize: Style.font.title
@@ -66,7 +68,7 @@ Item {
     }
 
     SettingRow {
-      label: "Workspaces on the bar"
+      label: strings.t("settings.barWorkspaces")
       NumberField {
         fieldWidth: Style.space(70)
         from: 1
@@ -77,7 +79,7 @@ Item {
     }
 
     SettingRow {
-      label: "Workspaces in the panel"
+      label: strings.t("settings.panelWorkspaces")
       NumberField {
         fieldWidth: Style.space(70)
         from: 1
@@ -88,7 +90,7 @@ Item {
     }
 
     SettingRow {
-      label: "App icons on the bar"
+      label: strings.t("settings.barIcons")
       ToggleSwitch {
         checked: root.settings.barIcons
         onToggled: root.settings.set("barIcons", !root.settings.barIcons)
@@ -96,7 +98,7 @@ Item {
     }
 
     SettingRow {
-      label: "Preview workspaces on hover"
+      label: strings.t("settings.hoverCards")
       ToggleSwitch {
         checked: root.settings.hoverCards
         onToggled: root.settings.set("hoverCards", !root.settings.hoverCards)
@@ -104,7 +106,7 @@ Item {
     }
 
     SettingRow {
-      label: "Minimized windows button"
+      label: strings.t("settings.minimizedButton")
       ToggleSwitch {
         checked: root.settings.minimizedButton
         onToggled: root.settings.set("minimizedButton", !root.settings.minimizedButton)
@@ -112,7 +114,7 @@ Item {
     }
 
     SettingRow {
-      label: "Super+Shift+arrow hotkeys"
+      label: strings.t("settings.hotkeys")
       ToggleSwitch {
         checked: root.settings.hotkeys
         onToggled: {
@@ -123,7 +125,7 @@ Item {
     }
 
     SettingRow {
-      label: "4 finger swipe up"
+      label: strings.t("settings.swipe")
       ToggleSwitch {
         checked: root.settings.swipe
         onToggled: {

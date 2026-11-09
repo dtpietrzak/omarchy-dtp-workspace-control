@@ -4,6 +4,8 @@ A better workspace row for the Omarchy bar, and a panel of live workspaces on a 
 
 ![Hovering workspaces on the bar for live previews, and moving windows around in the workspace panel](screenshots/workspace-control.gif)
 
+[Watch the full recording](screenshots/workspace-control.mp4).
+
 ## Requirements
 
 - Omarchy Quattro with Hyprland 0.56 or newer.
@@ -89,10 +91,9 @@ omarchy-shell shell call io.github.dtpietrzak.workspace-control toggle ""
 
 ## Development
 
-From a checkout, `./install.sh` copies the plugin into `~/.config/omarchy/plugins` and enables it. Tuning values are `SENSITIVITY` at the top of `hypr/workspace-control.lua` and `commitAt` at the top of `WorkspaceControl.qml`.
+Tuning values are `SENSITIVITY` at the top of `hypr/workspace-control.lua` and `commitAt` at the top of `WorkspaceControl.qml`. To check a change:
 
 ```bash
-bash tests/install-test.sh
 omarchy plugin validate .
 ```
 

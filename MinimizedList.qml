@@ -45,6 +45,7 @@ Item {
   }
 
   WorkspaceApps { id: workspaceApps }
+  Commons.Translations { id: strings; directory: Qt.resolvedUrl("i18n") }
 
   readonly property int iconSize: Math.round(Style.font.body * 1.5)
   readonly property int edge: Style.spacing.md
@@ -59,7 +60,7 @@ Item {
     anchors.leftMargin: root.edge
     anchors.verticalCenter: parent.verticalCenter
     textFormat: Text.PlainText
-    text: "No minimized windows"
+    text: strings.t("minimized.empty")
     color: Commons.Color.foreground
     font.family: Style.font.family
     font.pixelSize: Style.font.body

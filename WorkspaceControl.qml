@@ -121,7 +121,7 @@ Item {
   // The workspace set for selection, which every other one fades behind. A drag
   // grabs the pointer, so during one the drag's position decides.
   readonly property int selectedId: dragTile || minimizedDrag ? hoverId : listId
-  readonly property int fadeMs: 700
+  readonly property int fadeMs: 300
 
   // The selected workspace's windows, topmost first.
   readonly property var listWindows: {
@@ -133,7 +133,7 @@ Item {
 
   Timer {
     id: listLinger
-    interval: 400
+    interval: 200
     onTriggered: root.listId = -1
   }
 
@@ -892,11 +892,10 @@ Item {
         width: Math.min(root.sw * 0.4, rows.implicitWidth + edge)
         height: rows.implicitHeight + edge
         x: Math.max(edge, Math.min(root.sw - width - edge, cardCenter - width / 2))
-        y: band.y - height - edge
+        y: band.y - height
         color: workspaceApps.cardBackground(root.shell ? root.shell.barConfig : null)
-        radius: Style.cornerRadius
-        border.width: Style.spacing.hairline
-        border.color: Style.normalBorderColor
+        topLeftRadius: Style.cornerRadius
+        topRightRadius: Style.cornerRadius
 
         HoverHandler { id: listHover }
 
