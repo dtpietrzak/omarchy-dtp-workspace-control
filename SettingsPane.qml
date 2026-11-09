@@ -104,6 +104,14 @@ Item {
     }
 
     SettingRow {
+      label: "Minimized windows button"
+      ToggleSwitch {
+        checked: root.settings.minimizedButton
+        onToggled: root.settings.set("minimizedButton", !root.settings.minimizedButton)
+      }
+    }
+
+    SettingRow {
       label: "Super+Shift+arrow hotkeys"
       ToggleSwitch {
         checked: root.settings.hotkeys

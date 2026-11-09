@@ -67,6 +67,7 @@ Right-click the three squares and choose Settings, or use the gear in the panel:
 - How many workspaces are always shown on the bar and in the panel.
 - App icons on the bar.
 - Workspace previews on hover.
+- The minimized windows button.
 - Super+Shift+arrow hotkeys.
 - The four finger swipe up.
 
@@ -97,4 +98,4 @@ omarchy plugin validate .
 
 ## License
 
-MIT
+MIT. See `THIRD_PARTY_NOTICES` for the part adapted from Omarchy.

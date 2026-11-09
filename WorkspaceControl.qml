@@ -789,6 +789,7 @@ Item {
       }
 
       CloseButton {
+        visible: prefs.minimizedButton
         x: cards.x + cards.width - width + Style.space(12)
         y: band.y + labels.y + (labels.height - height) / 2
         size: labels.implicitHeight

@@ -13,6 +13,7 @@ Scope {
   readonly property int panelWorkspaces: count("panelWorkspaces", 7)
   readonly property bool barIcons: flag("barIcons")
   readonly property bool hoverCards: flag("hoverCards")
+  readonly property bool minimizedButton: flag("minimizedButton")
   // Off until asked for, because they replace what is on those keys.
   readonly property bool hotkeys: values.hotkeys === true
   readonly property bool swipe: flag("swipe")

@@ -275,8 +275,8 @@ BarWidget {
     // Between the button and the ..., which the bar still handles.
     x: root.vertical ? 0 : panelButton.width
     y: root.vertical ? panelButton.height : 0
-    width: parent.width - x - (root.vertical ? 0 : moreButton.width + root.entryGap)
-    height: parent.height - y - (root.vertical ? moreButton.height + root.entryGap : 0)
+    width: parent.width - x - (root.vertical || !moreButton.visible ? 0 : moreButton.width + root.entryGap)
+    height: parent.height - y - (root.vertical && moreButton.visible ? moreButton.height + root.entryGap : 0)
     acceptedButtons: Qt.LeftButton
     cursorShape: pressed && root.reorderEntry ? Qt.ClosedHandCursor : Qt.PointingHandCursor
 
@@ -876,7 +876,7 @@ BarWidget {
     WidgetButton {
       id: moreButton
       bar: root.bar
-      hasVisualContent: true
+      hasVisualContent: prefs.minimizedButton
       foreground: root.minimizedWindows.length > 0 ? root.barForeground : Qt.alpha(root.barForeground, 0.5)
       horizontalMargin: 6
       verticalPadding: 6
