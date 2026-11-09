@@ -2,12 +2,24 @@
   "schemaVersion": 1,
   "id": "dtpietrzak.workspacecontrol",
   "name": "Workspace control",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "author": "dtpietrzak",
-  "description": "Four finger swipe panel showing every workspace and its windows",
-  "kinds": ["panel"],
+  "description": "Four finger swipe panel showing every workspace and its windows, with workspace numbers for the bar",
+  "kinds": [
+    "panel",
+    "bar-widget"
+  ],
   "keepLoaded": true,
   "entryPoints": {
-    "panel": "WorkspaceControl.qml"
-  }
+    "panel": "WorkspaceControl.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Workspace control",
+    "description": "A button for the workspace panel and a number for each workspace",
+    "category": "Compositor",
+    "allowMultiple": false,
+    "defaultSection": "left"
+  },
+  "homepage": "https://github.com/dtpietrzak/omarchy-dtp-workspace-control"
 }

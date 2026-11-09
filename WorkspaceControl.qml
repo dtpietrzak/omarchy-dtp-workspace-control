@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Layouts
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
@@ -45,7 +46,8 @@ Item {
     if (activeId <= 0) return []
     var block = blockOf(activeId)
     var base = block * slots
-    var ids = [base + 1, base + 2, base + 3, base + 4, base + 5]
+    var ids = []
+    for (var n = 1; n <= prefs.panelWorkspaces; n++) ids.push(base + n)
     var guests = []
     var values = Hyprland.workspaces.values
     for (var i = 0; i < values.length; i++) {
@@ -79,14 +81,7 @@ Item {
   }
   readonly property real restY: sh - bandH - bottomGap
   // The band's background follows the bar's: opaque, glassy or none.
-  readonly property color bandColor: {
-    var bar = shell && shell.barConfig ? shell.barConfig : {}
-    var look = bar.background || (bar.transparent === true ? "none" : "opaque")
-    var color = Commons.Color.bar.background
-    if (look === "none") return "transparent"
-    if (look === "glassy") return Qt.rgba(color.r, color.g, color.b, Math.min(color.a, 0.35))
-    return color
-  }
+  readonly property color bandColor: workspaceApps.barBackground(shell ? shell.barConfig : null)
   readonly property real travel: Math.max(1, sh - restY)
 
   // Window being dragged, and the cursor in window coordinates.
@@ -99,10 +94,51 @@ Item {
   readonly property Item highlightTile: dragTile || hoverTile
   // Card under the pointer, when it isn't on one of the card's windows.
   property int hoverCardId: -1
+  // Pointer is on the floating window list, or on the way up to it.
+  readonly property bool overList: listHover.hovered || reachHover.hovered
+  readonly property int pointedId: {
+    if (dragTile) return -1
+    if (hoverTile) return hoverTile.wsId
+    if (hoverCardId > 0) return hoverCardId
+    return overList ? listId : -1
+  }
+  // Follows the pointer, but lets go late so a wandering path between a card and
+  // its list doesn't lose the list.
+  property int listId: -1
+  onPointedIdChanged: followPointer()
+  onDragTileChanged: followPointer()
+  function followPointer() {
+    if (dragTile && dragTile.listRow) {
+      // The row being dragged lives in the list, which has to stay.
+      listLinger.stop()
+    } else if (pointedId > 0) {
+      listLinger.stop()
+      listId = pointedId
+    } else {
+      listLinger.restart()
+    }
+  }
   // The workspace set for selection, which every other one fades behind. A drag
   // grabs the pointer, so during one the drag's position decides.
-  readonly property int selectedId: dragTile ? hoverId : (hoverTile ? hoverTile.wsId : hoverCardId)
+  readonly property int selectedId: dragTile ? hoverId : listId
   readonly property int fadeMs: 700
+
+  // The selected workspace's windows, topmost first.
+  readonly property var listWindows: {
+    var order = stackOrder
+    return windowsOn(listId).sort(function(a, b) {
+      return (order[workspaceApps.windowAddress(b)] || 0) - (order[workspaceApps.windowAddress(a)] || 0)
+    })
+  }
+
+  Timer {
+    id: listLinger
+    interval: 400
+    onTriggered: root.listId = -1
+  }
+
+  WorkspaceApps { id: workspaceApps }
+  WorkspaceSettings { id: prefs }
 
   NumberAnimation {
     id: settle
@@ -135,9 +171,13 @@ Item {
     if (opened) holdWorkspace(activeId)
     opened = false
     dragTile = null
+    reorderLabel = null
+    reorderInsert = -1
     hoverId = -1
     hoverTile = null
     hoverCardId = -1
+    listLinger.stop()
+    listId = -1
     animateTo(0, 140)
   }
 
@@ -193,21 +233,20 @@ Item {
     heldWindow = ""
     if (id <= 0) return
     if (blockOf(id) === blockOf(activeId) && monitor) {
-      Hyprland.dispatch('o.workspaces.focus(' + slotOf(id) + ', "' + monitor.name + '")')
+      workspaceApps.dispatchWithoutWarp('o.workspaces.focus(' + slotOf(id) + ', "' + monitor.name + '")')
     } else {
-      Hyprland.dispatch('hl.dsp.focus({ workspace = "' + id + '" })')
+      workspaceApps.dispatchWithoutWarp('hl.dsp.focus({ workspace = "' + id + '" })')
     }
-    if (address !== "") {
-      // Focusing a window warps the mouse to it. Leave the mouse where it is.
-      Hyprland.dispatch('(function()'
-        + ' local no_warps = hl.get_config("cursor.no_warps")'
-        + ' hl.config({ cursor = { no_warps = true } })'
-        + ' hl.dispatch(hl.dsp.focus({ window = "address:' + address + '" }))'
-        + ' hl.config({ cursor = { no_warps = no_warps } })'
-        + ' end)')
-      Hyprland.dispatch('hl.dsp.window.alter_zorder({ mode = "top", window = "address:' + address + '" })')
-    }
+    workspaceApps.focusAddress(address)
   }
+
+  // The swipe and the layer rules, which Hyprland forgets on every reload.
+  function setUpHyprland() {
+    var path = decodeURIComponent(String(Qt.resolvedUrl("hypr/workspace-control.lua")).replace(/^file:\/\//, ""))
+    Hyprland.dispatch('(function() dofile(' + JSON.stringify(path) + ') end)')
+  }
+
+  Component.onCompleted: setUpHyprland()
 
   // 1-9 are those slots on this monitor and 0 is slot 10, as with Super+number.
   function pressNumber(key) {
@@ -216,18 +255,66 @@ Item {
     if (workspaceIds.indexOf(id) !== -1) jump(id)
   }
 
-  function windowAddress(toplevel) {
-    var address = String(toplevel && toplevel.address || "")
-    if (address !== "" && address.indexOf("0x") !== 0) address = "0x" + address
-    return /^0x[0-9a-f]+$/i.test(address) ? address : ""
+  // The workspace being dragged along the row by its number, and where it would land.
+  property Item reorderLabel: null
+  readonly property int reorderId: reorderLabel ? reorderLabel.modelData : -1
+  readonly property Item reorderCard: {
+    for (var i = 0; reorderLabel && i < cards.children.length; i++) {
+      if (cards.children[i].wsId === reorderId) return cards.children[i]
+    }
+    return null
+  }
+  property int reorderInsert: -1
+  property point reorderPos: Qt.point(0, 0)
+  property real reorderGrabX: 0
+  property real reorderMarkerX: 0
+
+  // The monitor's own cards, in row order. Only these can trade places.
+  function ownCards() {
+    var found = []
+    for (var i = 0; i < cards.children.length; i++) {
+      var card = cards.children[i]
+      if (card.wsId !== undefined && blockOf(card.wsId) === blockOf(activeId)) found.push(card)
+    }
+    return found.sort(function(a, b) { return a.x - b.x })
+  }
+
+  function moveReorder(label, point) {
+    if (blockOf(label.modelData) !== blockOf(activeId)) return
+    reorderLabel = label
+    reorderPos = point
+    var own = ownCards()
+    var index = own.length
+    for (var i = 0; i < own.length; i++) {
+      var left = cards.mapToItem(panel.contentItem, own[i].x, 0).x
+      if (point.x < left + own[i].width / 2) {
+        index = i
+        break
+      }
+    }
+    reorderInsert = index
+    var gap = cardGap / 2
+    reorderMarkerX = index < own.length
+      ? cards.mapToItem(panel.contentItem, own[index].x, 0).x - gap
+      : cards.mapToItem(panel.contentItem, own[own.length - 1].x + own[own.length - 1].width, 0).x + gap
+  }
+
+  function finishReorder() {
+    var id = reorderId
+    var insert = reorderInsert
+    reorderLabel = null
+    reorderInsert = -1
+    droppedAt = Date.now()
+    var ids = ownCards().map(function(card) { return card.wsId })
+    var from = ids.indexOf(id)
+    // Dropped back where it started.
+    if (from < 0 || insert === from || insert === from + 1) return
+    Hyprland.dispatch("(function() dtpwc_reorder({" + ids.join(",") + "}, " + (from + 1) + ", " + (insert + 1) + ") end)")
+    refresh.restart()
   }
 
   function moveWindow(toplevel, id) {
-    var address = windowAddress(toplevel)
-    if (address === "") return
-    Hyprland.dispatch('hl.dsp.window.move({ workspace = "' + id + '", follow = false, window = "address:' + address + '" })')
-    // A moved window keeps its old place in the stack, so it has to be raised.
-    Hyprland.dispatch('hl.dsp.window.alter_zorder({ mode = "top", window = "address:' + address + '" })')
+    workspaceApps.moveWindow(toplevel, id)
     refresh.restart()
   }
 
@@ -310,11 +397,11 @@ Item {
     if (!justDropped()) jump(id)
   }
 
-  // Jump to a mini view's workspace and bring that window to the front there.
-  function clickWindow(tile) {
+  // Jump to a window's workspace and bring that window to the front there.
+  function clickWindow(id, toplevel) {
     if (justDropped()) return
-    jump(tile.wsId)
-    heldWindow = windowAddress(tile.modelData)
+    jump(id)
+    heldWindow = workspaceApps.windowAddress(toplevel)
   }
 
   function drop() {
@@ -351,6 +438,10 @@ Item {
         if (data === "dtpwc:begin") root.swipeBegin()
         else if (data.indexOf("dtpwc:move ") === 0) root.swipeMove(Number(data.slice(11)))
         else if (data.indexOf("dtpwc:end ") === 0) root.swipeEnd(data.slice(10) === "1")
+        return
+      }
+      if (event.name === "configreloaded") {
+        root.setUpHyprland()
         return
       }
       if (event.name === "closelayer" && String(event.data) === root.layerNamespace) {
@@ -439,22 +530,68 @@ Item {
           Repeater {
             model: ScriptModel { values: root.workspaceIds }
 
-            delegate: Text {
+            delegate: Item {
+              id: label
               required property var modelData
               readonly property bool active: modelData === root.activeId
 
-              opacity: root.selectedId > 0 && root.selectedId !== modelData ? 0.5 : 1
+              opacity: root.reorderLabel === label ? 0.35 : (root.selectedId > 0 && root.selectedId !== modelData ? 0.5 : 1)
               Behavior on opacity {
+                enabled: !root.reorderLabel
                 NumberAnimation { duration: Style.duration(root.fadeMs); easing.type: Easing.OutCubic }
               }
               width: root.cardW
-              horizontalAlignment: Text.AlignHCenter
-              textFormat: Text.PlainText
-              text: root.blockOf(modelData) === root.blockOf(root.activeId) ? root.slotOf(modelData) : modelData
-              color: active ? Commons.Color.accent : Commons.Color.foreground
-              font.family: Style.font.family
-              font.pixelSize: Style.font.body
-              font.bold: active
+              // Only as tall as the number, so the icons don't make the band taller.
+              implicitHeight: number.implicitHeight
+
+              // Grab the number and icons to move this workspace along the row.
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: root.reorderLabel === label ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                property point pressPoint
+
+                onPressed: mouse => pressPoint = Qt.point(mouse.x, mouse.y)
+                onPositionChanged: mouse => {
+                  if (!pressed) return
+                  var dx = mouse.x - pressPoint.x
+                  var dy = mouse.y - pressPoint.y
+                  if (root.reorderLabel !== label && dx * dx + dy * dy < 36) return
+                  if (root.reorderLabel !== label) root.reorderGrabX = pressPoint.x
+                  root.moveReorder(label, mapToItem(panel.contentItem, mouse.x, mouse.y))
+                }
+                onReleased: if (root.reorderLabel === label) root.finishReorder()
+                onCanceled: {
+                  if (root.reorderLabel === label) root.reorderLabel = null
+                }
+              }
+
+              // The number and its icons are centered over the card as one unit.
+              Row {
+                anchors.centerIn: parent
+                spacing: Style.space(4)
+
+                Text {
+                  id: number
+                  textFormat: Text.PlainText
+                  text: root.blockOf(label.modelData) === root.blockOf(root.activeId) ? root.slotOf(label.modelData) : label.modelData
+                  color: label.active ? Commons.Color.accent : Commons.Color.foreground
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.body
+                  font.bold: label.active
+                }
+
+                Repeater {
+                  model: workspaceApps.appsIn(root.windowsOn(label.modelData))
+
+                  AppMark {
+                    required property var modelData
+                    source: modelData.source
+                    letter: modelData.letter
+                    size: number.implicitHeight
+                    letterColor: Commons.Color.foreground
+                  }
+                }
+              }
             }
           }
         }
@@ -480,8 +617,9 @@ Item {
 
               Component.onDestruction: if (root.hoverCardId === wsId) root.hoverCardId = -1
 
-              opacity: root.selectedId > 0 && !selected ? 0.5 : 1
+              opacity: root.reorderId === wsId ? 0.35 : (root.selectedId > 0 && !selected ? 0.5 : 1)
               Behavior on opacity {
+                enabled: root.reorderId <= 0
                 NumberAnimation { duration: Style.duration(root.fadeMs); easing.type: Easing.OutCubic }
               }
               width: root.cardW
@@ -516,7 +654,7 @@ Item {
                   readonly property int wsId: card.wsId
                   readonly property var ipc: modelData.lastIpcObject || ({})
                   readonly property real ratio: root.sw > 0 ? root.cardW / root.sw : 0
-                  readonly property int stackIndex: root.stackOrder[root.windowAddress(modelData)] || 0
+                  readonly property int stackIndex: root.stackOrder[workspaceApps.windowAddress(modelData)] || 0
                   readonly property bool placed: !!ipc.at && !!ipc.size && !ipc.hidden
                   readonly property string appClass: String(ipc["class"] || modelData.title || "?")
 
@@ -604,7 +742,7 @@ Item {
                     }
                     onReleased: {
                       if (root.dragTile === tile) root.drop()
-                      else if (containsMouse) root.clickWindow(tile)
+                      else if (containsMouse) root.clickWindow(tile.wsId, tile.modelData)
                     }
                     onCanceled: if (root.dragTile === tile) root.dragTile = null
                   }
@@ -616,6 +754,177 @@ Item {
         }
       }
 
+      // Holds the list open while the pointer is near it or crossing the space
+      // down to its card. It only watches, so clicks here still reach the panel.
+      Item {
+        readonly property int reach: Style.spacing.huge * 2
+        readonly property real leftEdge: Math.min(windowList.x, windowList.cardCenter - root.cardW / 2) - reach
+        readonly property real rightEdge: Math.max(windowList.x + windowList.width, windowList.cardCenter + root.cardW / 2) + reach
+
+        visible: windowList.visible
+        x: leftEdge
+        width: rightEdge - leftEdge
+        y: windowList.y - reach
+        height: band.y + cards.y - y
+
+        HoverHandler { id: reachHover }
+      }
+
+      // The selected workspace's windows, floating above its card so the band
+      // keeps its size.
+      Rectangle {
+        id: windowList
+        readonly property real cardCenter: cards.x + root.workspaceIds.indexOf(root.listId) * (root.cardW + root.cardGap) + root.cardW / 2
+        readonly property int edge: Style.spacing.md
+        readonly property int iconSize: Math.round(Style.font.body * 1.5)
+
+        visible: root.opened && !root.reorderLabel && (!root.dragTile || !!root.dragTile.listRow) && root.listWindows.length > 0
+        width: Math.min(root.sw * 0.4, rows.implicitWidth + edge)
+        height: rows.implicitHeight + edge
+        x: Math.max(edge, Math.min(root.sw - width - edge, cardCenter - width / 2))
+        y: band.y - height - edge
+        color: workspaceApps.cardBackground(root.shell ? root.shell.barConfig : null)
+        radius: Style.cornerRadius
+        border.width: Style.spacing.hairline
+        border.color: Style.normalBorderColor
+
+        HoverHandler { id: listHover }
+
+        // Keeps a click between two rows from closing the panel.
+        MouseArea { anchors.fill: parent }
+
+        ColumnLayout {
+          id: rows
+          anchors.fill: parent
+          anchors.margins: windowList.edge / 2
+          spacing: 0
+
+          Repeater {
+            model: ScriptModel { values: root.listWindows }
+
+            delegate: Item {
+              id: row
+              required property var modelData
+              readonly property string appId: workspaceApps.appIdOf(modelData)
+              // What a drag needs, the same as a mini view has.
+              readonly property bool listRow: true
+              readonly property int wsId: root.listId
+              property real grabX: 0
+
+              Component.onDestruction: if (root.dragTile === row) root.dragTile = null
+
+              Layout.fillWidth: true
+              implicitWidth: title.implicitWidth + windowList.iconSize * 2 + windowList.edge * 4
+              implicitHeight: Math.max(windowList.iconSize, title.implicitHeight) + windowList.edge
+
+              Rectangle {
+                anchors.fill: parent
+                radius: Style.cornerRadius
+                // A row being dragged leaves the list, so it brings a backing along.
+                color: root.dragTile === row ? Commons.Color.background
+                  : rowMouse.containsMouse || closeButton.hovered ? Style.hoverFill : "transparent"
+                border.width: root.dragTile === row || rowMouse.containsMouse || closeButton.hovered ? 1 : 0
+                border.color: Commons.Color.accent
+              }
+
+              AppMark {
+                id: icon
+                anchors.left: parent.left
+                anchors.leftMargin: windowList.edge
+                anchors.verticalCenter: parent.verticalCenter
+                size: windowList.iconSize
+                source: workspaceApps.iconFor(row.appId)
+                letter: workspaceApps.letterFor(row.appId)
+                letterColor: Commons.Color.foreground
+              }
+
+              Text {
+                id: title
+                anchors.left: icon.right
+                anchors.leftMargin: windowList.edge
+                anchors.right: closeButton.left
+                anchors.rightMargin: windowList.edge
+                anchors.verticalCenter: parent.verticalCenter
+                elide: Text.ElideRight
+                textFormat: Text.PlainText
+                text: row.modelData.title || row.appId
+                color: Commons.Color.foreground
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+              }
+
+              MouseArea {
+                id: rowMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: pressed ? Qt.ClosedHandCursor : Qt.PointingHandCursor
+                property point pressPoint
+
+                onPressed: mouse => {
+                  pressPoint = Qt.point(mouse.x, mouse.y)
+                  row.grabX = mouse.x
+                }
+                onPositionChanged: mouse => {
+                  if (!pressed) return
+                  var dx = mouse.x - pressPoint.x
+                  var dy = mouse.y - pressPoint.y
+                  if (root.dragTile !== row && dx * dx + dy * dy < 36) return
+                  var point = mapToItem(panel.contentItem, mouse.x, mouse.y)
+                  root.dragTo(row, point.x, point.y)
+                }
+                onReleased: {
+                  if (root.dragTile === row) root.drop()
+                  else if (containsMouse) root.clickWindow(root.listId, row.modelData)
+                }
+                onCanceled: if (root.dragTile === row) root.dragTile = null
+              }
+
+              CloseButton {
+                id: closeButton
+                anchors.right: parent.right
+                anchors.rightMargin: windowList.edge / 2
+                anchors.verticalCenter: parent.verticalCenter
+                size: windowList.iconSize
+                onClicked: workspaceApps.closeWindow(row.modelData)
+              }
+            }
+          }
+        }
+      }
+
+      // Where the workspace being dragged would land.
+      Rectangle {
+        visible: !!root.reorderLabel && root.reorderInsert >= 0
+        x: root.reorderMarkerX - width / 2
+        y: band.y + cards.y
+        width: 2
+        height: root.cardH
+        radius: 1
+        color: Commons.Color.accent
+      }
+
+      // The workspace itself and its number and icons, following the pointer
+      // along the row.
+      ShaderEffectSource {
+        visible: !!root.reorderCard
+        sourceItem: root.reorderCard
+        width: root.cardW
+        height: root.cardH
+        x: root.reorderPos.x - root.reorderGrabX
+        y: band.y + cards.y
+        opacity: 0.8
+      }
+
+      ShaderEffectSource {
+        visible: !!root.reorderLabel
+        sourceItem: root.reorderLabel
+        width: root.reorderLabel ? root.reorderLabel.width : 0
+        height: root.reorderLabel ? root.reorderLabel.height : 0
+        x: root.reorderPos.x - root.reorderGrabX
+        y: band.y + labels.y
+        opacity: 0.8
+      }
+
       // The window under the cursor while it is being dragged.
       ShaderEffectSource {
         visible: !!root.dragTile
@@ -623,7 +932,8 @@ Item {
         hideSource: true
         width: root.dragTile ? root.dragTile.width : 0
         height: root.dragTile ? root.dragTile.height : 0
-        x: root.dragPos.x - width / 2
+        // A wide list row keeps hold of the spot it was picked up by.
+        x: root.dragPos.x - (root.dragTile && root.dragTile.listRow ? root.dragTile.grabX : width / 2)
         y: root.dragPos.y - height / 2
         opacity: 0.9
       }
