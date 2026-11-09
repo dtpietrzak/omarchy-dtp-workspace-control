@@ -1,10 +1,11 @@
 {
   "schemaVersion": 1,
-  "id": "dtpietrzak.workspacecontrol",
-  "name": "Workspace control",
+  "id": "io.github.dtpietrzak.workspace-control",
+  "name": "Workspace Control",
   "version": "2.0.0",
   "author": "dtpietrzak",
-  "description": "Four finger swipe panel showing every workspace and its windows, with workspace numbers for the bar",
+  "license": "MIT",
+  "description": "A workspace row for the bar with app icons and live hover previews, and a panel of every workspace on a four finger swipe. Move, focus, close and reorder by dragging.",
   "kinds": [
     "panel",
     "bar-widget"
@@ -15,8 +16,8 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Workspace control",
-    "description": "A button for the workspace panel and a number for each workspace",
+    "displayName": "Workspace Control",
+    "description": "A number for each workspace with its app icons, live hover previews, and a button for the workspace panel",
     "category": "Compositor",
     "allowMultiple": false,
     "defaultSection": "left"

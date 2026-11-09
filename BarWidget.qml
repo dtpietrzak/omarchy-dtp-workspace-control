@@ -13,7 +13,7 @@ import qs.Ui
 // one this monitor is showing.
 BarWidget {
   id: root
-  moduleName: "dtpietrzak.workspacecontrol"
+  moduleName: "io.github.dtpietrzak.workspace-control"
 
   // Every monitor has ten workspaces of its own, which Hyprland numbers in a
   // block per monitor: 1-10, 11-20, and so on.
@@ -363,7 +363,7 @@ BarWidget {
   }
 
   function togglePanel() {
-    if (root.bar) root.bar.run("omarchy-shell shell call dtpietrzak.workspacecontrol toggle ''")
+    if (root.bar) root.bar.run("omarchy-shell shell call io.github.dtpietrzak.workspace-control toggle ''")
   }
 
   function hidePeek() {
@@ -847,8 +847,10 @@ BarWidget {
 
           Grid {
             id: icons
-            anchors.verticalCenter: root.vertical ? undefined : parent.verticalCenter
-            anchors.horizontalCenter: root.vertical ? parent.horizontalCenter : undefined
+            // Placed by value: an anchor that gets cleared when the bar changes
+            // sides would leave the icons where it last put them.
+            x: root.vertical ? (parent.width - width) / 2 : 0
+            y: root.vertical ? 0 : (parent.height - height) / 2
             columns: root.vertical ? 1 : Math.max(1, entry.apps.length)
             spacing: Style.space(3)
             scale: appIcons.pressScale

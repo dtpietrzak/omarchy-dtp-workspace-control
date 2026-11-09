@@ -6,12 +6,8 @@
 
 set -euo pipefail
 
-PLUGIN_ID="dtpietrzak.workspacecontrol"
+PLUGIN_ID="io.github.dtpietrzak.workspace-control"
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-HYPR_DIR="$HOME/.config/hypr"
-OLD_GESTURE="$HYPR_DIR/workspace-control.lua"
-HYPRLAND="$HYPR_DIR/hyprland.lua"
-OLD_REQUIRE='require("hypr.workspace-control")'
 DEST="$HOME/.config/omarchy/plugins/$PLUGIN_ID"
 
 fail() {
@@ -67,29 +63,4 @@ if jq -e --arg id "$PLUGIN_ID" 'any(.. | objects; .id? == $id)' "$HOME/.config/o
   echo "Plugin $PLUGIN_ID is already enabled"
 else
   omarchy plugin enable "$PLUGIN_ID"
-fi
-
-# The widget brings its own workspace numbers, so the stock ones would be a
-# second row of the same thing.
-if jq -e --arg id "$PLUGIN_ID" 'any(.bar.layout[]?[]?; .id? == $id)' "$HOME/.config/omarchy/shell.json" >/dev/null 2>&1 &&
-  omarchy plugin list --json | jq -e 'any(.[]; .id == "omarchy.workspaces" and .enabled)' >/dev/null; then
-  omarchy plugin disable omarchy.workspaces
-  echo "Turned off the stock workspace widget"
-fi
-
-# Before 2.0 the gesture was installed into the Hyprland config. The plugin
-# loads it itself now, and the old copy would hold the gesture in its place.
-if [[ -f $OLD_GESTURE ]] || { [[ -f $HYPRLAND ]] && grep -qxF "$OLD_REQUIRE" "$HYPRLAND"; }; then
-  rm -f "$OLD_GESTURE"
-  if [[ -f $HYPRLAND ]]; then
-    sed -i -e '/^-- Four finger workspace control panel (omarchy-dtp-workspace-control)\.$/d' \
-      -e '/^require("hypr\.workspace-control")$/d' "$HYPRLAND"
-  fi
-  echo "Removed the old gesture from the Hyprland config"
-  hyprctl reload >/dev/null
-  errors="$(hyprctl configerrors 2>&1 || true)"
-  if [[ -n ${errors//[[:space:]]/} ]]; then
-    printf '%s\n' "$errors" >&2
-    fail "Hyprland reported config errors"
-  fi
 fi

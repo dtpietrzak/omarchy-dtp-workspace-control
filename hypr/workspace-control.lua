@@ -1,5 +1,5 @@
 -- Four finger vertical swipe that drives the workspace control panel, a shell
--- plugin (dtpietrzak.workspacecontrol).
+-- plugin (io.github.dtpietrzak.workspace-control).
 --
 -- A plugin can't add to hyprland.lua, so WorkspaceControl.qml runs this file
 -- itself: when it starts and after every Hyprland reload, which forgets all of
@@ -173,19 +173,26 @@ function dtpwc_reorder(ids, from, insert)
 end
 
 -- The settings pane saves to this file and reloads Hyprland when these change.
-local function enabled(setting)
+local function enabled(setting, default)
   local config = os.getenv("XDG_CONFIG_HOME") or (os.getenv("HOME") .. "/.config")
-  local file = io.open(config .. "/omarchy/dtpietrzak.workspacecontrol.json")
+  local file = io.open(config .. "/omarchy/io.github.dtpietrzak.workspace-control.json")
   if not file then
-    return true
+    return default
   end
   local text = file:read("a")
   file:close()
-  return not text:find('"' .. setting .. '"%s*:%s*false')
+  if text:find('"' .. setting .. '"%s*:%s*false') then
+    return false
+  end
+  if text:find('"' .. setting .. '"%s*:%s*true') then
+    return true
+  end
+  return default
 end
 
--- These replace Omarchy's defaults on the same keys, which swap tiled windows.
-if enabled("hotkeys") then
+-- These replace Omarchy's defaults on the same keys, which swap tiled windows,
+-- so they wait until they're turned on in the settings.
+if enabled("hotkeys", false) then
   o.rebind("SUPER + SHIFT + LEFT", "Previous workspace", function()
     slide(-1)
   end)
@@ -202,7 +209,7 @@ end
 
 -- Last: Hyprland refuses this if the user already has a four finger vertical
 -- gesture, and the error ends this file.
-if enabled("swipe") then
+if enabled("swipe", true) then
   hl.gesture({
     fingers = FINGERS,
     direction = "vertical",

@@ -13,7 +13,8 @@ Scope {
   readonly property int panelWorkspaces: count("panelWorkspaces", 7)
   readonly property bool barIcons: flag("barIcons")
   readonly property bool hoverCards: flag("hoverCards")
-  readonly property bool hotkeys: flag("hotkeys")
+  // Off until asked for, because they replace what is on those keys.
+  readonly property bool hotkeys: values.hotkeys === true
   readonly property bool swipe: flag("swipe")
 
   function count(key, fallback) {
@@ -44,7 +45,7 @@ Scope {
 
   FileView {
     id: file
-    path: (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/omarchy/dtpietrzak.workspacecontrol.json"
+    path: (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/omarchy/io.github.dtpietrzak.workspace-control.json"
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
