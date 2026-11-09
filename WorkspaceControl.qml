@@ -120,7 +120,7 @@ Item {
   }
   // The workspace set for selection, which every other one fades behind. A drag
   // grabs the pointer, so during one the drag's position decides.
-  readonly property int selectedId: dragTile ? hoverId : listId
+  readonly property int selectedId: dragTile || minimizedDrag ? hoverId : listId
   readonly property int fadeMs: 700
 
   // The selected workspace's windows, topmost first.
@@ -171,6 +171,7 @@ Item {
     if (opened) holdWorkspace(activeId)
     opened = false
     dragTile = null
+    popup = ""
     reorderLabel = null
     reorderInsert = -1
     hoverId = -1
@@ -253,6 +254,24 @@ Item {
     var slot = key === Qt.Key_0 ? 10 : key - Qt.Key_0
     var id = blockOf(activeId) * slots + slot
     if (workspaceIds.indexOf(id) !== -1) jump(id)
+  }
+
+  // The card open above the row, from the buttons at its ends: "settings",
+  // "minimized", or none.
+  property string popup: ""
+  function togglePopup(name) { popup = popup === name ? "" : name }
+
+  // A minimized window being dragged onto a workspace.
+  readonly property Item minimizedDrag: minimizedPopup.item ? minimizedPopup.item.dragItem : null
+  property point minimizedDragPos: Qt.point(0, 0)
+  onMinimizedDragChanged: if (!minimizedDrag) hoverId = -1
+
+  // Hotkeys and the swipe are registered with Hyprland, so changing them takes a
+  // reload. A moment's wait lets the setting reach the file first.
+  Timer {
+    id: reloadForSetting
+    interval: 200
+    onTriggered: Quickshell.execDetached(["hyprctl", "reload"])
   }
 
   // The workspace being dragged along the row by its number, and where it would land.
@@ -469,7 +488,8 @@ Item {
       focus: true
       Keys.onPressed: event => {
         if (event.key === Qt.Key_Escape) {
-          root.close()
+          if (root.popup !== "") root.popup = ""
+          else root.close()
           event.accepted = true
         } else if (event.key >= Qt.Key_0 && event.key <= Qt.Key_9
             && (event.modifiers & ~Qt.KeypadModifier) === 0) {
@@ -516,7 +536,10 @@ Item {
         color: root.bandColor
 
         // Keeps a click between two cards from closing the panel.
-        MouseArea { anchors.fill: parent }
+        MouseArea {
+          anchors.fill: parent
+          onClicked: root.popup = ""
+        }
 
         // Each workspace's number, centered above its card. The cards clip their
         // contents, so the numbers are their own row.
@@ -612,7 +635,7 @@ Item {
               readonly property int wsId: modelData
               property alias tiles: tileRepeater
               readonly property bool active: wsId === root.activeId
-              readonly property bool hovered: root.hoverId === wsId && !!root.dragTile && root.dragTile.wsId !== wsId
+              readonly property bool hovered: root.hoverId === wsId && (!!root.minimizedDrag || (!!root.dragTile && root.dragTile.wsId !== wsId))
               readonly property bool selected: root.selectedId === wsId
 
               Component.onDestruction: if (root.hoverCardId === wsId) root.hoverCardId = -1
@@ -754,6 +777,92 @@ Item {
         }
       }
 
+      // Settings and the minimized windows, just past the two ends of the number row.
+      CloseButton {
+        x: cards.x - Style.space(12)
+        y: band.y + labels.y + (labels.height - height) / 2
+        size: labels.implicitHeight
+        glyph: "\uf013"
+        glyphScale: 0.9
+        restingOpacity: 0.29
+        onClicked: root.togglePopup("settings")
+      }
+
+      CloseButton {
+        x: cards.x + cards.width - width + Style.space(12)
+        y: band.y + labels.y + (labels.height - height) / 2
+        size: labels.implicitHeight
+        glyph: "󰇘"
+        opacity: workspaceApps.minimizedWindows.length > 0 ? 1 : 0.5
+        onClicked: root.togglePopup("minimized")
+      }
+
+      // What those buttons open, floating above the row so the band keeps its size.
+      Rectangle {
+        id: popupCard
+        readonly property int edge: Style.spacing.md
+
+        visible: root.opened && root.popup !== ""
+        width: (root.popup === "settings" ? settingsPopup.width : minimizedPopup.width) + edge
+        height: (root.popup === "settings" ? settingsPopup.height : minimizedPopup.height) + edge
+        // Sits on the band, against the screen edge nearest its button.
+        x: root.popup === "settings" ? 0 : root.sw - width
+        y: band.y - height
+        color: workspaceApps.cardBackground(root.shell ? root.shell.barConfig : null)
+        topLeftRadius: root.popup === "minimized" ? Style.cornerRadius : 0
+        topRightRadius: root.popup === "settings" ? Style.cornerRadius : 0
+
+        // Keeps a click on the card from closing the panel.
+        MouseArea { anchors.fill: parent }
+
+        Loader {
+          id: settingsPopup
+          x: popupCard.edge / 2
+          y: popupCard.edge / 2
+          active: root.popup === "settings"
+          sourceComponent: SettingsPane {
+            settings: prefs
+            onReloadNeeded: reloadForSetting.restart()
+          }
+        }
+
+        Loader {
+          id: minimizedPopup
+          x: popupCard.edge / 2
+          y: popupCard.edge / 2
+          active: root.popup === "minimized"
+          sourceComponent: MinimizedList {
+            windows: workspaceApps.minimizedWindows
+            dragSpace: panel.contentItem
+            onRestore: function(toplevel) {
+              if (root.justDropped()) return
+              root.popup = ""
+              workspaceApps.restoreWindow(toplevel, root.activeId)
+              refresh.restart()
+            }
+            onClose: function(toplevel) { workspaceApps.closeWindow(toplevel) }
+            onDragMoved: function(x, y) {
+              root.minimizedDragPos = Qt.point(x, y)
+              var card = root.cardAt(x, y)
+              root.hoverId = card ? card.wsId : -1
+            }
+            onDragDropped: function(toplevel) {
+              root.droppedAt = Date.now()
+              if (root.hoverId > 0) root.moveWindow(toplevel, root.hoverId)
+              root.hoverId = -1
+            }
+            onDragCanceled: root.hoverId = -1
+          }
+        }
+      }
+
+      DragGhost {
+        source: root.minimizedDrag
+        position: root.minimizedDragPos
+        grab: minimizedPopup.item ? minimizedPopup.item.grabPoint : Qt.point(0, 0)
+        itemScale: 0.5
+      }
+
       // Holds the list open while the pointer is near it or crossing the space
       // down to its card. It only watches, so clicks here still reach the panel.
       Item {
@@ -778,7 +887,7 @@ Item {
         readonly property int edge: Style.spacing.md
         readonly property int iconSize: Math.round(Style.font.body * 1.5)
 
-        visible: root.opened && !root.reorderLabel && (!root.dragTile || !!root.dragTile.listRow) && root.listWindows.length > 0
+        visible: root.opened && root.popup === "" && !root.reorderLabel && (!root.dragTile || !!root.dragTile.listRow) && root.listWindows.length > 0
         width: Math.min(root.sw * 0.4, rows.implicitWidth + edge)
         height: rows.implicitHeight + edge
         x: Math.max(edge, Math.min(root.sw - width - edge, cardCenter - width / 2))

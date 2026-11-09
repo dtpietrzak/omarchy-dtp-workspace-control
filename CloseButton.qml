@@ -2,11 +2,14 @@ import QtQuick
 import qs.Commons
 import qs.Commons as Commons
 
-// The × at the end of a window's row in a list.
+// A small button on a window's row in a list: the × that closes it, by default.
 Rectangle {
   id: button
 
   property int size: 16
+  property real glyphScale: 1.1
+  property real restingOpacity: 0.7
+  property string glyph: "󰅖"
   readonly property bool hovered: mouse.containsMouse
 
   signal clicked()
@@ -19,10 +22,11 @@ Rectangle {
   Text {
     anchors.centerIn: parent
     textFormat: Text.PlainText
-    text: "×"
+    text: button.glyph
     color: Commons.Color.foreground
+    opacity: button.hovered ? 1 : button.restingOpacity
     font.family: Style.font.family
-    font.pixelSize: Math.round(button.size * 0.85)
+    font.pixelSize: Math.round(button.size * button.glyphScale)
   }
 
   MouseArea {

@@ -143,11 +143,35 @@ BarWidget {
   // The popover's choices, or the settings it opens into.
   property bool menuShowsSettings: false
   readonly property bool settingsOpen: menuOpen && menuShowsSettings
+  // Or the minimized windows, which the ... button opens it to.
+  property bool menuShowsMinimized: false
+
+  readonly property var minimizedWindows: workspaceApps.minimizedWindows
+
+  function toggleMinimized() {
+    if (menuOpen && menuShowsMinimized) {
+      menuOpen = false
+      return
+    }
+    hidePeek()
+    peekTimer.stop()
+    menuShowsSettings = false
+    menuShowsMinimized = true
+    menuOpen = true
+    Qt.callLater(placeMenu)
+    followMenu()
+  }
+
+  function restoreWindow(toplevel) {
+    menuOpen = false
+    workspaceApps.restoreWindow(toplevel, activeId)
+  }
 
   function openMenu() {
     hidePeek()
     peekTimer.stop()
     menuShowsSettings = false
+    menuShowsMinimized = false
     menuOpen = true
     Qt.callLater(placeMenu)
     followMenu()
@@ -155,6 +179,10 @@ BarWidget {
 
   // On a horizontal bar, the icons in the popover line up with the button's.
   function placeMenu() {
+    if (menuShowsMinimized) {
+      placeCard(menuCard, moreButton, menuCard.width, menuCard.height, -entryGap / 2)
+      return
+    }
     var iconCenter = peek.sideEdge + settingsRow.edge + settingsRow.iconSize / 2
     placeCard(menuCard, panelButton, menuCard.width, menuCard.height, vertical ? 0 : panelButton.width / 2 - iconCenter)
   }
@@ -162,14 +190,14 @@ BarWidget {
   // Gone a moment after the pointer has left both the button and the popover.
   function followMenu() {
     if (!menuOpen) return
-    if (settingsOpen || buttonHover.hovered || menuHover.hovered) menuTimer.stop()
+    if (settingsOpen || peekDragItem || buttonHover.hovered || moreHover.hovered || menuHover.hovered) menuTimer.stop()
     else menuTimer.restart()
   }
 
   Timer {
     id: menuTimer
     interval: 400
-    onTriggered: if (!root.settingsOpen && !buttonHover.hovered && !menuHover.hovered) root.menuOpen = false
+    onTriggered: if (!root.peekDragItem && !root.settingsOpen && !buttonHover.hovered && !moreHover.hovered && !menuHover.hovered) root.menuOpen = false
   }
 
   // The bar lays a press handler over every widget for rearranging the bar, so a
@@ -244,10 +272,11 @@ BarWidget {
     parent: root.barSlot || root
     z: 1000
     enabled: !!root.barSlot
+    // Between the button and the ..., which the bar still handles.
     x: root.vertical ? 0 : panelButton.width
     y: root.vertical ? panelButton.height : 0
-    width: parent.width - x
-    height: parent.height - y
+    width: parent.width - x - (root.vertical ? 0 : moreButton.width + root.entryGap)
+    height: parent.height - y - (root.vertical ? moreButton.height + root.entryGap : 0)
     acceptedButtons: Qt.LeftButton
     cursorShape: pressed && root.reorderEntry ? Qt.ClosedHandCursor : Qt.PointingHandCursor
 
@@ -350,7 +379,13 @@ BarWidget {
   }
 
   // A window being dragged from the card, and where it would land.
-  readonly property Item peekDragItem: peekContent.item ? peekContent.item.dragItem : null
+  readonly property Item peekDragItem: dragSource ? dragSource.dragItem : null
+  // The card a window is being dragged from, the hover card or the minimized list.
+  readonly property Item dragSource: {
+    if (peekContent.item && peekContent.item.dragItem) return peekContent.item
+    if (minimizedLoader.item && minimizedLoader.item.dragItem) return minimizedLoader.item
+    return null
+  }
   property point peekDragPos: Qt.point(0, 0)
   property int dropTargetId: -1
   // A picked-up window eases down to its dragging size.
@@ -371,6 +406,7 @@ BarWidget {
       peekShrink.start()
     }
     followPointer()
+    followMenu()
   }
 
   // Closing the last window from the card leaves it nothing to show.
@@ -520,38 +556,11 @@ BarWidget {
     }
 
     // The window under the cursor while it is being dragged.
-    ShaderEffectSource {
-      visible: !!root.peekDragItem
-      sourceItem: root.peekDragItem
-      hideSource: true
-      width: root.peekDragItem ? root.peekDragItem.width : 0
-      height: root.peekDragItem ? root.peekDragItem.height : 0
-      x: root.peekDragPos.x - (peekContent.item ? peekContent.item.grabPoint.x : 0)
-      y: root.peekDragPos.y - (peekContent.item ? peekContent.item.grabPoint.y : 0)
-      // Small and see-through, so the workspace it's over can be seen. It shrinks
-      // toward the spot it was picked up by, which stays under the pointer. Just
-      // under 30%, because Hyprland blurs behind anything above that on glassy.
-      opacity: 0.29
-      transform: Scale {
-        origin.x: peekContent.item ? peekContent.item.grabPoint.x : 0
-        origin.y: peekContent.item ? peekContent.item.grabPoint.y : 0
-        xScale: root.peekDragScale
-        yScale: root.peekDragScale
-      }
-    }
-
-    // Its border, drawn apart so it stays thin and solid at any size and opacity.
-    Rectangle {
-      readonly property Item peekItem: peekContent.item
-      visible: !!root.peekDragItem
-      x: peekItem ? root.peekDragPos.x - peekItem.grabPoint.x * root.peekDragScale : 0
-      y: peekItem ? root.peekDragPos.y - peekItem.grabPoint.y * root.peekDragScale : 0
-      width: root.peekDragItem ? root.peekDragItem.width * root.peekDragScale : 0
-      height: root.peekDragItem ? root.peekDragItem.height * root.peekDragScale : 0
-      radius: Math.min(Style.cornerRadius, height / 2)
-      color: "transparent"
-      border.width: 1
-      border.color: Commons.Color.accent
+    DragGhost {
+      source: root.dragSource === peekContent.item ? root.peekDragItem : null
+      position: root.peekDragPos
+      grab: peekContent.item ? peekContent.item.grabPoint : Qt.point(0, 0)
+      itemScale: root.peekDragScale
     }
   }
 
@@ -576,8 +585,8 @@ BarWidget {
 
     Rectangle {
       id: menuCard
-      width: (root.menuShowsSettings ? settingsLoader.width : menuRows.widest) + peek.sideEdge * 2
-      height: (root.menuShowsSettings ? settingsLoader.height : menuRows.implicitHeight) + peek.endEdge
+      width: (root.menuShowsSettings ? settingsLoader.width : root.menuShowsMinimized ? minimizedLoader.width : menuRows.widest) + peek.sideEdge * 2
+      height: (root.menuShowsSettings ? settingsLoader.height : root.menuShowsMinimized ? minimizedLoader.height : menuRows.implicitHeight) + peek.endEdge
       color: workspaceApps.cardBackground(root.bar && root.bar.shell ? root.bar.shell.barConfig : null)
       topLeftRadius: peek.barSide === "top" || peek.barSide === "left" ? 0 : Style.cornerRadius
       topRightRadius: peek.barSide === "top" || peek.barSide === "right" ? 0 : Style.cornerRadius
@@ -611,9 +620,36 @@ BarWidget {
         }
       }
 
+      Loader {
+        id: minimizedLoader
+        x: peek.sideEdge
+        y: peek.barSide === "bottom" ? peek.endEdge : 0
+        active: root.menuShowsMinimized
+
+        sourceComponent: MinimizedList {
+          windows: root.minimizedWindows
+          dragSpace: menu.contentItem
+          onRestore: function(toplevel) {
+            if (!root.justDropped()) root.restoreWindow(toplevel)
+          }
+          onClose: function(toplevel) { workspaceApps.closeWindow(toplevel) }
+          onDragMoved: function(x, y) {
+            root.peekDragPos = Qt.point(x, y)
+            root.dropTargetId = root.workspaceAt(x, y)
+          }
+          onDragDropped: function(toplevel) {
+            var target = root.dropTargetId
+            root.dropTargetId = -1
+            root.droppedAt = Date.now()
+            if (target > 0) workspaceApps.moveWindow(toplevel, target)
+          }
+          onDragCanceled: root.dropTargetId = -1
+        }
+      }
+
       Item {
         id: menuRows
-        visible: !root.menuShowsSettings
+        visible: !root.menuShowsSettings && !root.menuShowsMinimized
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.margins: peek.sideEdge
@@ -665,6 +701,13 @@ BarWidget {
         }
       }
     }
+
+    DragGhost {
+      source: root.dragSource === minimizedLoader.item ? root.peekDragItem : null
+      position: root.peekDragPos
+      grab: minimizedLoader.item ? minimizedLoader.item.grabPoint : Qt.point(0, 0)
+      itemScale: root.peekDragScale
+    }
   }
 
   function focusWorkspace(id) {
@@ -697,7 +740,7 @@ BarWidget {
   GridLayout {
     id: row
     anchors.fill: parent
-    columns: root.vertical ? 1 : root.workspaceIds.length + 1
+    columns: root.vertical ? 1 : root.workspaceIds.length + 2
     columnSpacing: root.vertical ? 0 : root.entryGap
     rowSpacing: root.vertical ? root.entryGap : 0
 
@@ -824,6 +867,51 @@ BarWidget {
             }
           }
         }
+      }
+    }
+
+    // The windows that are minimized, past the last workspace.
+    WidgetButton {
+      id: moreButton
+      bar: root.bar
+      hasVisualContent: true
+      foreground: root.minimizedWindows.length > 0 ? root.barForeground : Qt.alpha(root.barForeground, 0.5)
+      horizontalMargin: 6
+      verticalPadding: 6
+      fixedWidth: root.vertical ? root.barSize : Style.space(20)
+      fixedHeight: root.barSize
+      onPressed: root.toggleMinimized()
+
+      HoverHandler {
+        id: moreHover
+        onHoveredChanged: root.followMenu()
+      }
+
+      // Drawn, because text dots sit on the baseline, below the numbers' middle.
+      Row {
+        anchors.centerIn: parent
+        scale: moreButton.pressScale
+        spacing: 2
+
+        Repeater {
+          model: 3
+
+          Rectangle {
+            width: 2
+            height: 2
+            radius: 1
+            color: moreButton.foreground
+          }
+        }
+      }
+
+      Rectangle {
+        readonly property real thin: 1 / Math.max(1, Screen.devicePixelRatio)
+        x: root.vertical ? (parent.width - width) / 2 : -root.entryGap / 2
+        y: root.vertical ? -root.entryGap / 2 : (parent.height - height) / 2
+        width: root.vertical ? Style.space(12) : thin
+        height: root.vertical ? thin : Style.space(12)
+        color: Qt.alpha(root.barForeground, 0.3)
       }
     }
   }

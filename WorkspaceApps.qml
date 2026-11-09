@@ -70,6 +70,29 @@ QtObject {
     if (address !== "") Hyprland.dispatch('hl.dsp.window.close({ window = "address:' + address + '" })')
   }
 
+  // The windows waiting on Omarchy's minimized workspace.
+  readonly property var minimizedWindows: {
+    var values = Hyprland.toplevels.values
+    var found = []
+    for (var i = 0; i < values.length; i++) {
+      if (values[i].workspace && values[i].workspace.name === "special:minimized") found.push(values[i])
+    }
+    return found
+  }
+
+  // Back onto this workspace, focused and on top, without animating in. The same
+  // as the dock does.
+  function restoreWindow(toplevel, id) {
+    var address = windowAddress(toplevel)
+    if (address === "" || id < 1) return
+    var target = 'window = "address:' + address + '"'
+    Hyprland.dispatch('hl.dsp.window.set_prop({ prop = "no_anim", value = "1", ' + target + ' })')
+    Hyprland.dispatch('hl.dsp.window.move({ workspace = "' + id + '", follow = false, ' + target + ' })')
+    focusAddress(address)
+    Quickshell.execDetached(["sh", "-c", 'sleep 0.4; exec hyprctl dispatch "$1"', "sh",
+      'hl.dsp.window.set_prop({ prop = "no_anim", value = "unset", ' + target + ' })'])
+  }
+
   function focusWindow(toplevel) {
     focusAddress(windowAddress(toplevel))
   }
