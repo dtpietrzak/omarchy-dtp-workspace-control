@@ -21,7 +21,7 @@
   "apps.uninstall": "Uninstall",
   "apps.cancel": "Cancel",
   "apps.uninstallConfirm": "Do you want to uninstall %1?",
-  "apps.noMatch": "No apps match “%1”",
+  "apps.noMatch": "No apps matching \"%1\"",
   "apps.none": "No apps",
   "search.shortcut": "Alt+Super+Space",
   "menu.openApps": "App List",

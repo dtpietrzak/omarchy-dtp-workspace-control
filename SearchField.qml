@@ -80,7 +80,7 @@ Rectangle {
   // Whole card, so matches leave with the field as the panel drops away.
   y: (progress - 1) * height
   width: Style.spacing.searchableDropdownWidth
-  height: fieldBox.height + root.listHeight + (root.showResults ? root.edge / 2 : 0)
+  height: fieldBox.height + root.listHeight + (root.showResults ? root.edge / 2 : 0) + (root.showEmpty ? root.emptyHeight + root.edge / 2 : 0)
   clip: true
   color: panelColor
   border.width: 0
@@ -108,6 +108,10 @@ Rectangle {
   // Stays on through the close so the matches slide away with the field.
   property bool resultsOpen: false
   readonly property bool showResults: resultsOpen && hits.length > 0
+  // A search with no matches says so, on a line of its own under the field.
+  property bool emptyOpen: false
+  readonly property bool showEmpty: emptyOpen && hits.length === 0
+  readonly property int emptyHeight: rowHeight + edge
   readonly property bool typing: field.activeFocus
 
   // Room above the band. Remembered at rest so a closing panel, which moves
@@ -127,8 +131,9 @@ Rectangle {
 
   function syncResults() {
     var want = root.query.trim().length > 0 && root.hits.length > 0
-    if (root.opened && root.progress >= 1) root.resultsOpen = want
-    else if (!root.opened && root.progress <= 0) root.resultsOpen = false
+    var none = root.query.trim().length > 0 && root.hits.length === 0
+    if (root.opened && root.progress >= 1) { root.resultsOpen = want; root.emptyOpen = none }
+    else if (!root.opened && root.progress <= 0) { root.resultsOpen = false; root.emptyOpen = false }
   }
 
   function rememberRoom() {
@@ -425,6 +430,21 @@ Rectangle {
       font.family: field.font.family
       font.pixelSize: field.font.pixelSize
     }
+  }
+
+  Text {
+    visible: root.showEmpty
+    x: root.edge
+    y: fieldBox.height + (root.emptyHeight - height) / 2
+    width: parent.width - root.edge * 2
+    horizontalAlignment: Text.AlignHCenter
+    textFormat: Text.PlainText
+    text: strings.t("apps.noMatch").arg(root.query.trim().slice(0, 80))
+    color: Commons.Color.foreground
+    opacity: 0.7
+    font.family: field.font.family
+    font.pixelSize: field.font.pixelSize
+    elide: Text.ElideRight
   }
 
   ListView {
