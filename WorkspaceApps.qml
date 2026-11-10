@@ -11,7 +11,7 @@ QtObject {
     var look = bar.background || (bar.transparent === true ? "none" : "opaque")
     var color = Commons.Color.bar.background
     if (look === "none") return "transparent"
-    if (look === "glassy") return Qt.rgba(color.r, color.g, color.b, Math.min(color.a, 0.35))
+    if (look === "glassy") return Qt.rgba(color.r, color.g, color.b, Math.min(color.a, Commons.Color.pickAlpha("dtp.glass-alpha", 0.35)))
     return color
   }
 
