@@ -27,7 +27,12 @@ Item {
   readonly property int gutter: Style.space(10)
 
   implicitWidth: Style.space(300)
-  implicitHeight: fieldBox.height + rowHeight * visibleRows + edge / 2
+  // The card fits what it shows, as the workspace panel's search does: one row
+  // per match up to a full list, and a single line of room for the message when
+  // nothing matches.
+  readonly property int messageHeight: rowHeight + edge
+  readonly property int listHeight: apps.length > 0 ? rowHeight * Math.min(apps.length, visibleRows) : messageHeight
+  implicitHeight: fieldBox.height + listHeight + edge / 2
 
   property string query: ""
   property var apps: []
@@ -540,7 +545,7 @@ Item {
 
   Text {
     anchors.horizontalCenter: list.horizontalCenter
-    y: root.flipped ? list.y + list.height - height - root.edge : list.y + root.edge
+    y: (root.flipped ? root.edge / 2 : fieldBox.height) + (root.messageHeight - height) / 2
     width: list.width - root.edge * 2
     horizontalAlignment: Text.AlignHCenter
     visible: root.apps.length === 0

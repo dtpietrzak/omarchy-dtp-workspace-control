@@ -840,6 +840,7 @@ BarWidget {
         NumberAnimation { duration: Style.duration(root.appsOpen ? 180 : 120); easing.type: Easing.OutCubic }
       }
 
+      Behavior on height { NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic } }
       onHeightChanged: Qt.callLater(root.placeApps)
       onWidthChanged: Qt.callLater(root.placeApps)
 
