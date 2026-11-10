@@ -1,13 +1,13 @@
 import QtQuick
 
-// The app list's mark: three rows, each a dot and a line. Drawn the same way
+// The app list's mark: three rows, each a dot and a line of the same thickness. Drawn the same way
 // as the dock's apps button, at bar size.
 Column {
   id: mark
 
   property color color: "white"
 
-  spacing: 1.25
+  spacing: 1.75
 
   Repeater {
     model: 3
@@ -16,17 +16,17 @@ Column {
       spacing: 1.5
 
       Rectangle {
-        width: 2.5
-        height: 2.5
-        radius: 0.75
+        width: 2
+        height: 2
+        radius: 0.5
         color: mark.color
       }
 
+      // As thick as the dot and level with it.
       Rectangle {
-        anchors.verticalCenter: parent.verticalCenter
         width: 6
-        height: 1.25
-        radius: height / 2
+        height: 2
+        radius: 0.5
         color: mark.color
       }
     }

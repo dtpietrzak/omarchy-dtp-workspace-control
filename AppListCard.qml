@@ -321,13 +321,16 @@ Item {
   Item {
     id: fieldBox
     width: parent.width
-    height: Math.max(root.iconSize, field.implicitHeight) + root.edge
+    // The same room as the menu's search line: a half edge of card padding, a
+    // line one row tall, and a full edge before the first row.
+    height: Math.max(root.iconSize, field.implicitHeight) + root.edge * 2.5
 
     TextInput {
       id: field
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
+      anchors.verticalCenterOffset: -root.edge / 4
       anchors.leftMargin: root.edge + root.edge / 2
       anchors.rightMargin: root.edge + root.edge / 2 + (shortcutHint.visible ? shortcutHint.implicitWidth + root.edge : 0)
       focus: root.opened
@@ -363,7 +366,7 @@ Item {
       id: shortcutHint
       anchors.right: parent.right
       anchors.rightMargin: root.edge + root.edge / 2
-      anchors.verticalCenter: parent.verticalCenter
+      anchors.verticalCenter: field.verticalCenter
       visible: field.text.length === 0 && field.preeditText.length === 0
       textFormat: Text.PlainText
       text: strings.t("search.shortcut")
@@ -418,6 +421,18 @@ Item {
         color: row.selected ? Style.hoverFill : "transparent"
         border.width: row.selected ? 1 : 0
         border.color: Commons.Color.accent
+      }
+
+      // A thin line between this row and the next.
+      Rectangle {
+        y: Math.round(parent.height - height / 2)
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.leftMargin: root.edge
+        anchors.rightMargin: root.edge
+        height: 1 / Math.max(1, Screen.devicePixelRatio)
+        visible: row.index < root.apps.length - 1 && !row.selected && row.index + 1 !== root.selectedIndex
+        color: Qt.alpha(Commons.Color.foreground, 0.15)
       }
 
       AppMark {

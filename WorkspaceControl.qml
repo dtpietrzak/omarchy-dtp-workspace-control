@@ -8,6 +8,7 @@ import Quickshell.Widgets
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
+import "Chord.js" as Chord
 
 // A band along the bottom of the screen with one mini view per workspace.
 // hypr/workspace-control.lua reports four finger vertical swipes as custom
@@ -218,6 +219,7 @@ Item {
 
   WorkspaceApps { id: workspaceApps }
   WorkspaceSettings { id: prefs }
+  Commons.Translations { id: strings; directory: Qt.resolvedUrl("i18n") }
 
   NumberAnimation {
     id: settle
@@ -1057,6 +1059,26 @@ Item {
               }
             }
           }
+        }
+
+        // The hotkey that opens this panel, centered in the room under the cards.
+        Text {
+          anchors.horizontalCenter: parent.horizontalCenter
+          anchors.bottom: parent.bottom
+          anchors.bottomMargin: Math.round((root.bandPadding - implicitHeight) / 2)
+          // Whichever ways of opening the panel are turned on.
+          visible: prefs.examine || prefs.swipe
+          textFormat: Text.PlainText
+          text: {
+            var ways = []
+            if (prefs.examine) ways.push(Chord.pretty(prefs.examineKeys))
+            if (prefs.swipe) ways.push(strings.t("menu.swipe"))
+            return ways.join(" / ")
+          }
+          color: Commons.Color.foreground
+          opacity: 0.3
+          font.family: Style.font.family
+          font.pixelSize: Style.font.body
         }
 
         Row {

@@ -94,6 +94,18 @@ Item {
           border.color: Commons.Color.accent
         }
 
+        // A thin line between this row and the next.
+        Rectangle {
+          y: Math.round(parent.height - height / 2)
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.leftMargin: root.edge
+          anchors.rightMargin: root.edge
+          height: 1 / Math.max(1, Screen.devicePixelRatio)
+          visible: !row.hot && row.modelData !== root.windows[root.windows.length - 1]
+          color: Qt.alpha(Commons.Color.foreground, 0.15)
+        }
+
         AppMark {
           id: icon
           anchors.left: restoreButton.right
