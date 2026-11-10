@@ -25,6 +25,20 @@ Item {
   // 0 is off the bottom of the screen, 1 is resting in place.
   property real progress: 0
   property bool opened: false
+  // Exclusive until the open has been committed to the compositor, then OnDemand.
+  // Hyprland focuses OnDemand when a surface first maps, but not when an
+  // already-mapped surface (a swipe, or a reopen during the close) changes
+  // from None back to OnDemand. After an arrow, slid keeps Exclusive: focusing
+  // the workspace focuses a window, and that window takes the keyboard from
+  // OnDemand, so the next arrow never arrives.
+  property bool focusPrimed: false
+  // One beat away from Exclusive. Coming back is what takes the keyboard;
+  // a layer that is already Exclusive does not.
+  property bool reclaiming: false
+  // OnDemand for the start of a close. None while the surface is still mapped
+  // refocuses the window from the workspace the panel opened on.
+  property bool keyboardHold: false
+  property int pendingSlot: 0
 
   property bool swiping: false
   property real swipeBase: 0
@@ -36,6 +50,11 @@ Item {
   readonly property int sh: scr ? scr.height : 0
   readonly property var monitor: scr ? Hyprland.monitorFor(scr) : null
   readonly property int activeId: monitor && monitor.activeWorkspace ? monitor.activeWorkspace.id : -1
+  // The workspace the panel is showing. Arrows move this immediately. Until
+  // they do, it follows Hyprland, and a late event must not rewind an arrow.
+  property int viewedId: -1
+  property bool slid: false
+  onActiveIdChanged: if (activeId > 0 && !slid) viewedId = activeId
 
   function blockOf(id) { return Math.floor((id - 1) / slots) }
   function slotOf(id) { return (id - 1) % slots + 1 }
@@ -102,8 +121,10 @@ Item {
     if (hoverCardId > 0) return hoverCardId
     return overList ? listId : -1
   }
+  // The list shows this workspace while the pointer is not on a thumbnail.
+  readonly property int homeListId: viewedId > 0 ? viewedId : activeId
   // Follows the pointer, but lets go late so a wandering path between a card and
-  // its list doesn't lose the list.
+  // its list doesn't lose the list. Letting go returns to homeListId.
   property int listId: -1
   onPointedIdChanged: followPointer()
   onDragTileChanged: followPointer()
@@ -131,10 +152,68 @@ Item {
     })
   }
 
+  // Address of the row Up and Down are on. Kept across stack refreshes.
+  property string windowPick: ""
+  readonly property int windowIndex: {
+    var windows = listWindows
+    for (var i = 0; i < windows.length; i++) {
+      if (workspaceApps.windowAddress(windows[i]) === windowPick) return i
+    }
+    return 0
+  }
+  // A search with matches keeps Up and Down. Otherwise they move through this list.
+  readonly property bool windowKeys: opened && popup === "" && !reorderLabel && !dragTile
+    && listWindows.length > 0 && (appSearch.browsing || appSearch.hits.length === 0)
+
+  onListIdChanged: Qt.callLater(preferFocusedWindow)
+  onListWindowsChanged: if (listedIndex(windowPick) < 0) preferFocusedWindow()
+
+  function listedIndex(address) {
+    var windows = listWindows
+    for (var i = 0; i < windows.length; i++) {
+      if (workspaceApps.windowAddress(windows[i]) === address) return i
+    }
+    return -1
+  }
+
+  function preferFocusedWindow() {
+    var windows = listWindows
+    for (var i = 0; i < windows.length; i++) {
+      if (windows[i].activated) {
+        windowPick = workspaceApps.windowAddress(windows[i])
+        return
+      }
+    }
+    windowPick = windows.length > 0 ? workspaceApps.windowAddress(windows[0]) : ""
+  }
+
+  function cycleWindow(step) {
+    if (!windowKeys) return false
+    var windows = listWindows
+    var count = windows.length
+    var next = windowIndex + step
+    if (next < 0) next = count - 1
+    else if (next >= count) next = 0
+    var address = workspaceApps.windowAddress(windows[next])
+    if (address === "") return false
+    windowPick = address
+    return true
+  }
+
+  // Same path as clicking the row: go to its workspace and focus that window.
+  function confirmListedWindow() {
+    if (!windowKeys) return false
+    var windows = listWindows
+    var index = windowIndex
+    if (index < 0 || index >= windows.length) return false
+    clickWindow(listId, windows[index])
+    return true
+  }
+
   Timer {
     id: listLinger
     interval: 200
-    onTriggered: root.listId = -1
+    onTriggered: root.listId = root.homeListId > 0 ? root.homeListId : -1
   }
 
   WorkspaceApps { id: workspaceApps }
@@ -160,16 +239,53 @@ Item {
     syncWindows()
   }
 
+  // Start the Exclusive window once the backing surface is actually mapped.
+  function beginFocusPrime() {
+    if (opened && panel.backingWindowVisible) focusPrimeTimer.restart()
+  }
+
   function open() {
     ensureScreen()
+    slideDispatch.stop()
+    reclaimTimer.stop()
+    reclaimHold.stop()
+    handoff.stop()
+    keyboardHold = false
+    slid = false
+    reclaiming = false
+    pendingSlot = 0
+    if (activeId > 0) viewedId = activeId
+    appSearch.clear()
+    // Clear this before opened flips, so the first keyboard mode is Exclusive.
+    focusPrimed = false
     opened = true
+    listLinger.stop()
+    listId = homeListId
     animateTo(1, 220)
+    beginFocusPrime()
+    focusRetry.arm()
   }
 
   function close() {
     // Whatever is showing now has to survive the keyboard going back.
-    if (opened) holdWorkspace(activeId)
+    // Stop the slide first so a deferred workspace focus cannot land after.
+    slideDispatch.stop()
+    reclaimTimer.stop()
+    reclaimHold.stop()
+    pendingSlot = 0
+    if (opened) {
+      holdWorkspace(viewedId > 0 ? viewedId : activeId)
+      // Exclusive refuses a window focus, so the open-from window is still
+      // the focused one after an arrow. OnDemand clears that grab without
+      // refocusing it. finishHandoff then focuses where the panel is leaving.
+      keyboardHold = true
+      handoff.restart()
+    }
     opened = false
+    reclaiming = false
+    focusPrimeTimer.stop()
+    focusRetry.stop()
+    focusPrimed = false
     dragTile = null
     popup = ""
     reorderLabel = null
@@ -218,12 +334,138 @@ Item {
     holdWorkspace(id)
   }
 
-  // Closing the panel makes Hyprland refocus the window that had the keyboard,
-  // more than once, and that switches to that window's workspace. So the switch
-  // waits for the panel's surface to close, and goes last.
+  // The field gives the keyboard up after an arrow. This claims it back for
+  // whichever target should have it now. Never the overlay scope: that would
+  // hand focus to the field, the last child that had it.
+  function keepPanelKeys() {
+    if (!opened) return
+    if (settingsPopup.item && settingsPopup.item.capturing) return
+    if (appSearch.browsing) {
+      if (!browseKeys.activeFocus) browseKeys.forceActiveFocus()
+    } else {
+      appSearch.focusField()
+    }
+  }
+
+  // One slot over, empty or not, as Super+Shift+Left and Right do. It does
+  // not wrap. The search field gives up the keyboard either way. The workspace
+  // focus is synchronous IPC, so it waits until Exclusive has been committed.
+  // Doing both in one turn focuses a window while this layer is still OnDemand.
+  function slideWorkspace(step) {
+    appSearch.browse()
+    keepPanelKeys()
+    var from = viewedId > 0 ? viewedId : activeId
+    if (from < 1) return
+    var slot = slotOf(from) + step
+    if (slot < 1 || slot > slots) return
+    slid = true
+    viewedId = blockOf(from) * slots + slot
+    pendingSlot = slot
+    // A thumbnail under the pointer keeps its own windows. Otherwise the list
+    // follows the workspace the arrows just moved to.
+    if (!hoverTile && hoverCardId < 1) {
+      listLinger.stop()
+      listId = viewedId
+    }
+    slideDispatch.restart()
+  }
+
+  function commitSlide() {
+    if (!opened || pendingSlot < 1) return
+    var slot = pendingSlot
+    if (monitor)
+      workspaceApps.dispatchWithoutWarp('o.workspaces.focus(' + slot + ', "' + monitor.name + '")')
+    else
+      workspaceApps.dispatchWithoutWarp('hl.dsp.focus({ workspace = "' + viewedId + '" })')
+    Qt.callLater(keepPanelKeys)
+  }
+
+  // A window focus while already Exclusive does not give the keyboard back.
+  // Leave and re-enter so the return takes it, then claim the key target again.
+  function noteFocusSteal() {
+    if (!opened || !slid) return
+    Qt.callLater(keepPanelKeys)
+    // The deferred focus has not run yet. Dropping Exclusive now would give
+    // the keyboard to the window that focus is about to raise.
+    if (slideDispatch.running || reclaiming || reclaimHold.running) return
+    reclaiming = true
+    reclaimTimer.restart()
+  }
+
+  function isLetter(text) {
+    if (!text || String(text).length !== 1) return false
+    var value = String(text)
+    return value.toLowerCase() !== value.toUpperCase()
+  }
+
+  // Hyprland does not tag a new window with the workspace it was launched
+  // from, so the exec rule places it on the one the panel is showing.
+  function launchOnViewed(command) {
+    var id = viewedId > 0 ? viewedId : activeId
+    var quoted = JSON.stringify(String(command || ""))
+    if (id <= 0) {
+      Util.execDetached(String(command || ""))
+      return
+    }
+    Hyprland.dispatch('(function()'
+      + ' local no_warps = hl.get_config("cursor.no_warps")'
+      + ' local on_change = hl.get_config("cursor.warp_on_change_workspace")'
+      + ' hl.config({ cursor = { no_warps = true, warp_on_change_workspace = 0 } })'
+      + ' hl.exec_cmd(' + quoted + ', { workspace = ' + JSON.stringify(String(id)) + ' })'
+      + ' hl.config({ cursor = { no_warps = no_warps, warp_on_change_workspace = on_change } })'
+      + ' end)')
+  }
+
+  // Hyprland refocuses the previous window again when the surface unmaps.
+  // finishHandoff has already focused the destination, so this last pass
+  // stays on that workspace.
   function holdWorkspace(id) {
     heldId = id
     handBack.restart()
+  }
+
+  // The focused window on this workspace, or the topmost one.
+  function windowOn(id) {
+    if (id <= 0) return ""
+    var order = stackOrder
+    var windows = windowsOn(id)
+    var top = ""
+    var topRank = -1
+    var activated = ""
+    for (var i = 0; i < windows.length; i++) {
+      var address = workspaceApps.windowAddress(windows[i])
+      if (address === "") continue
+      if (windows[i].activated) activated = address
+      var rank = order[address] || 0
+      if (top === "" || rank >= topRank) {
+        top = address
+        topRank = rank
+      }
+    }
+    return activated !== "" ? activated : top
+  }
+
+  // The workspace focus from an arrow does not move the focused window: an
+  // exclusive layer refuses it, and focusing the workspace again once it is
+  // already current does nothing. Focus the window while OnDemand still holds,
+  // so the following None does not switch back to where the panel opened.
+  function finishHandoff() {
+    if (!keyboardHold || opened) {
+      keyboardHold = false
+      return
+    }
+    var id = heldId
+    var address = heldWindow
+    if (address === "") address = windowOn(id)
+    if (id > 0 && address !== "") {
+      workspaceApps.dispatchWithoutWarp('hl.dsp.focus({ window = "address:' + address + '" })')
+    } else if (id > 0 && id !== activeId) {
+      if (blockOf(id) === blockOf(activeId) && monitor)
+        workspaceApps.dispatchWithoutWarp('o.workspaces.focus(' + slotOf(id) + ', "' + monitor.name + '")')
+      else
+        workspaceApps.dispatchWithoutWarp('hl.dsp.focus({ workspace = "' + id + '" })')
+    }
+    keyboardHold = false
   }
 
   function goToHeld() {
@@ -248,13 +490,6 @@ Item {
   }
 
   Component.onCompleted: setUpHyprland()
-
-  // 1-9 are those slots on this monitor and 0 is slot 10, as with Super+number.
-  function pressNumber(key) {
-    var slot = key === Qt.Key_0 ? 10 : key - Qt.Key_0
-    var id = blockOf(activeId) * slots + slot
-    if (workspaceIds.indexOf(id) !== -1) jump(id)
-  }
 
   // The card open above the row, from the buttons at its ends: "settings",
   // "minimized", or none.
@@ -449,6 +684,88 @@ Item {
     onTriggered: root.syncWindows()
   }
 
+  Timer {
+    id: focusPrimeTimer
+    // Long enough for the Exclusive keyboard enter to commit, short enough
+    // that the pointer grab does not linger.
+    interval: 75
+    onTriggered: if (root.opened) root.focusPrimed = true
+  }
+
+  // Qt focus can land on the overlay scope, or get reset when the keyboard
+  // mode settles. Keep claiming the field, or the arrow target once the field
+  // has let go, until that target holds still.
+  Timer {
+    id: focusRetry
+    interval: 32
+    repeat: true
+    property int ticks: 0
+    property int stable: 0
+    property bool wasPrimed: false
+    function arm() {
+      ticks = 0
+      stable = 0
+      wasPrimed = false
+      restart()
+    }
+    onTriggered: {
+      if (!root.opened) {
+        stop()
+        return
+      }
+      ticks++
+      var primed = root.focusPrimed
+      if (primed && !wasPrimed) stable = 0
+      wasPrimed = primed
+      if (appSearch.browsing) {
+        stable = 0
+        if (!browseKeys.activeFocus) browseKeys.forceActiveFocus()
+      } else if (appSearch.typing) {
+        if (primed) stable++
+      } else {
+        stable = 0
+        appSearch.focusField()
+      }
+      // Keep claiming the arrow target for the whole browse. A keyboard-mode
+      // change can clear Qt focus after the last explicit claim.
+      if (appSearch.browsing) return
+      if (primed && stable >= 4) stop()
+      else if (ticks >= 24) stop()
+    }
+  }
+
+  // Not Style.duration: a reduced-motion zero would dispatch before Exclusive
+  // is committed, which is the race this timer exists to avoid.
+  Timer {
+    id: slideDispatch
+    interval: 48
+    onTriggered: root.commitSlide()
+  }
+
+  // Same wait in reverse. OnDemand has to be committed, and the exclusive
+  // grab gone, before the destination window will take focus.
+  Timer {
+    id: handoff
+    interval: 48
+    onTriggered: root.finishHandoff()
+  }
+
+  Timer {
+    id: reclaimTimer
+    interval: 32
+    onTriggered: {
+      root.reclaiming = false
+      if (root.opened && root.slid) reclaimHold.restart()
+      Qt.callLater(root.keepPanelKeys)
+    }
+  }
+
+  // Ignore the focus events this pulse itself causes.
+  Timer {
+    id: reclaimHold
+    interval: 80
+  }
+
   Connections {
     target: Hyprland
     function onRawEvent(event) {
@@ -468,6 +785,8 @@ Item {
         return
       }
       if (!root.shown) return
+      if (root.opened && root.slid && (event.name === "workspacev2" || event.name === "activewindowv2"))
+        root.noteFocusSteal()
       switch (event.name) {
       case "openwindow": case "closewindow": case "movewindowv2": case "activewindowv2":
       case "changefloatingmode": case "fullscreen": case "workspacev2":
@@ -479,23 +798,113 @@ Item {
   OverlayWindow {
     id: panel
     shown: root.shown
-    // OnDemand takes the keyboard without the pointer grab Exclusive brings.
-    shownKeyboardFocus: root.opened ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+    // Exclusive on every open, including when this surface is already mapped,
+    // then OnDemand so the pointer grab does not stay. None while a swipe has
+    // not committed, so the desktop keeps the keyboard until the panel is open.
+    // After an arrow, Exclusive stays: OnDemand would lose the next arrow to
+    // the window just focused. reclaiming dips to OnDemand for one beat so the
+    // return to Exclusive can take the keyboard back. keyboardHold is that
+    // same OnDemand across the start of a close, before None.
+    shownKeyboardFocus: {
+      if (root.keyboardHold) return WlrKeyboardFocus.OnDemand
+      if (!root.opened) return WlrKeyboardFocus.None
+      if (root.reclaiming) return WlrKeyboardFocus.OnDemand
+      if (root.slid || !root.focusPrimed) return WlrKeyboardFocus.Exclusive
+      return WlrKeyboardFocus.OnDemand
+    }
     WlrLayershell.namespace: root.layerNamespace
+    onBackingWindowVisibleChanged: root.beginFocusPrime()
 
-    Item {
+    FocusScope {
       anchors.fill: parent
       focus: true
+
+      // Zero size on purpose. Forcing this scope would focus the text field,
+      // which is the last child that held focus. Arrows need their own target
+      // once that field has let go.
+      Item {
+        id: browseKeys
+        width: 0
+        height: 0
+        focus: root.opened && appSearch.browsing
+        Keys.enabled: root.opened && appSearch.browsing
+        Keys.onPressed: event => {
+          if (settingsPopup.item && settingsPopup.item.capturing) {
+            settingsPopup.item.takeKey(event.key, event.modifiers, event.text)
+            event.accepted = true
+            return
+          }
+          var plain = (event.modifiers & ~(Qt.ShiftModifier | Qt.KeypadModifier)) === 0
+          if (plain && (event.key === Qt.Key_Left || event.key === Qt.Key_Right)) {
+            root.slideWorkspace(event.key === Qt.Key_Left ? -1 : 1)
+            event.accepted = true
+            return
+          }
+          if (plain && (event.key === Qt.Key_Up || event.key === Qt.Key_Down)) {
+            root.cycleWindow(event.key === Qt.Key_Up ? -1 : 1)
+            event.accepted = true
+            return
+          }
+          if (event.key === Qt.Key_Escape) {
+            root.close()
+            event.accepted = true
+            return
+          }
+          if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+            if (!root.confirmListedWindow()) root.close()
+            event.accepted = true
+            return
+          }
+          if (plain && root.isLetter(event.text)) {
+            appSearch.typeAgain(event.text)
+            event.accepted = true
+          }
+        }
+      }
+
+      // The search field takes keys while it is focused, including Escape.
+      // A key that arrives before that focus lands still goes into the field.
       Keys.onPressed: event => {
+        if (settingsPopup.item && settingsPopup.item.capturing) {
+          settingsPopup.item.takeKey(event.key, event.modifiers, event.text)
+          event.accepted = true
+          return
+        }
+        var plain = (event.modifiers & ~(Qt.ShiftModifier | Qt.KeypadModifier)) === 0
+        if (plain && (event.key === Qt.Key_Left || event.key === Qt.Key_Right)) {
+          root.slideWorkspace(event.key === Qt.Key_Left ? -1 : 1)
+          event.accepted = true
+          return
+        }
+        if (plain && (event.key === Qt.Key_Up || event.key === Qt.Key_Down)) {
+          root.cycleWindow(event.key === Qt.Key_Up ? -1 : 1)
+          event.accepted = true
+          return
+        }
+        if (appSearch.typing) return
+        if (appSearch.browsing) {
+          if (event.key === Qt.Key_Escape) {
+            root.close()
+            event.accepted = true
+          } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+            if (!root.confirmListedWindow()) root.close()
+            event.accepted = true
+          } else if (plain && root.isLetter(event.text)) {
+            appSearch.typeAgain(event.text)
+            event.accepted = true
+          }
+          return
+        }
         if (event.key === Qt.Key_Escape) {
           if (root.popup !== "") root.popup = ""
           else root.close()
           event.accepted = true
-        } else if (event.key >= Qt.Key_0 && event.key <= Qt.Key_9
-            && (event.modifiers & ~Qt.KeypadModifier) === 0) {
-          root.pressNumber(event.key)
-          event.accepted = true
+          return
         }
+        if (!plain || !event.text) return
+        appSearch.focusField()
+        appSearch.insertText(event.text)
+        event.accepted = true
       }
 
       // The panel covers the desktop, so a real window can't be grabbed directly.
@@ -525,6 +934,37 @@ Item {
           pressedTile = null
           root.dragTile = null
           root.hoverId = -1
+        }
+      }
+
+      // The panel is an overlay, so this stays above the bar on any edge.
+      // The field is pinned to the top of the screen.
+      SearchField {
+        id: appSearch
+        anchors.horizontalCenter: parent.horizontalCenter
+        progress: root.progress
+        opened: root.opened
+        panelColor: root.bandColor
+        popupOpen: root.popup !== ""
+        yieldKeys: settingsPopup.item ? settingsPopup.item.capturing : false
+        onYielded: function(key, modifiers, text) {
+          if (settingsPopup.item) settingsPopup.item.takeKey(key, modifiers, text)
+        }
+        onWorkspaceStepped: step => root.slideWorkspace(step)
+        onWindowStepped: step => root.cycleWindow(step)
+        onWindowActivate: if (!root.confirmListedWindow()) root.close()
+        onLaunchRequested: command => root.launchOnViewed(command)
+        onDismiss: root.close()
+        limit: {
+          var floor = band.y
+          if (windowList.visible) floor = Math.min(floor, windowList.y)
+          if (popupCard.visible) floor = Math.min(floor, popupCard.y)
+          return Math.max(0, floor - Style.spacing.xxl)
+        }
+        onLaunched: root.close()
+        onEscapePressed: {
+          if (root.popup !== "") root.popup = ""
+          else root.close()
         }
       }
 
@@ -914,6 +1354,8 @@ Item {
             delegate: Item {
               id: row
               required property var modelData
+              required property int index
+              readonly property bool picked: root.windowKeys && index === root.windowIndex
               readonly property string appId: workspaceApps.appIdOf(modelData)
               // What a drag needs, the same as a mini view has.
               readonly property bool listRow: true
@@ -931,8 +1373,8 @@ Item {
                 radius: Style.cornerRadius
                 // A row being dragged leaves the list, so it brings a backing along.
                 color: root.dragTile === row ? Commons.Color.background
-                  : rowMouse.containsMouse || closeButton.hovered ? Style.hoverFill : "transparent"
-                border.width: root.dragTile === row || rowMouse.containsMouse || closeButton.hovered ? 1 : 0
+                  : row.picked || rowMouse.containsMouse || closeButton.hovered ? Style.hoverFill : "transparent"
+                border.width: root.dragTile === row || row.picked || rowMouse.containsMouse || closeButton.hovered ? 1 : 0
                 border.color: Commons.Color.accent
               }
 
@@ -967,6 +1409,11 @@ Item {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: pressed ? Qt.ClosedHandCursor : Qt.PointingHandCursor
+                onContainsMouseChanged: {
+                  if (!containsMouse) return
+                  var address = workspaceApps.windowAddress(row.modelData)
+                  if (address !== "") root.windowPick = address
+                }
                 property point pressPoint
 
                 onPressed: mouse => {

@@ -12,8 +12,8 @@ Row {
     model: 3
 
     Rectangle {
-      width: 4.5
-      height: 4.5
+      width: 3.75
+      height: 3.75
       color: mark.color
     }
   }

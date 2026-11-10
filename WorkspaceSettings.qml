@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import "Chord.js" as Chord
 
 // The plugin's saved settings. The bar and the panel each hold one of these and
 // follow the file, and hypr/workspace-control.lua reads the same file.
@@ -13,10 +14,21 @@ Scope {
   readonly property int panelWorkspaces: count("panelWorkspaces", 7)
   readonly property bool barIcons: flag("barIcons")
   readonly property bool hoverCards: flag("hoverCards")
+  readonly property bool appsButton: flag("appsButton")
+  readonly property bool panelButton: flag("panelButton")
   readonly property bool minimizedButton: flag("minimizedButton")
   // Off until asked for, because they replace what is on those keys.
   readonly property bool hotkeys: values.hotkeys === true
   readonly property bool swipe: flag("swipe")
+  // On by default: Super+E is not used by Omarchy.
+  readonly property bool examine: flag("examine")
+  readonly property string examineKeys: chord("examineKeys")
+
+  function chord(key) {
+    var value = values[key] === undefined || values[key] === null ? "" : String(values[key])
+    var normal = Chord.normalize(value)
+    return normal !== "" ? normal : "SUPER + E"
+  }
 
   function count(key, fallback) {
     var value = Number(values[key])

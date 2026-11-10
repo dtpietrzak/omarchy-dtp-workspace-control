@@ -8,6 +8,7 @@ import Quickshell.Wayland
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
+import "Chord.js" as Chord
 
 // The panel's button, then a number for each workspace with a line under the
 // one this monitor is showing.
@@ -105,7 +106,7 @@ BarWidget {
   property int peekId: -1
 
   function showPeek(entry) {
-    if (settingsOpen) return
+    if (menuOpen || appsOpen) return
     if (!prefs.hoverCards || !entry.occupied) {
       hidePeek()
       return
@@ -154,6 +155,7 @@ BarWidget {
       menuOpen = false
       return
     }
+    appsOpen = false
     hidePeek()
     peekTimer.stop()
     menuShowsSettings = false
@@ -168,7 +170,35 @@ BarWidget {
     workspaceApps.restoreWindow(toplevel, activeId)
   }
 
-  function openMenu() {
+  // The app list that the apps button drops down, open until a click lands
+  // anywhere else.
+  property bool appsOpen: false
+
+  function toggleApps() {
+    if (appsOpen) {
+      appsOpen = false
+      return
+    }
+    hidePeek()
+    menuOpen = false
+    appsOpen = true
+    Qt.callLater(placeApps)
+  }
+
+  // Its left edge on the divider in front of the widget.
+  // With the button hidden, the widget's own leading edge.
+  function placeApps() {
+    if (appsButton.visible) placeCard(appsCard, appsButton, appsCard.width, appsCard.height, vertical ? 0 : -leadGap)
+    else placeCard(appsCard, root, appsCard.width, appsCard.height, 0)
+  }
+
+  // The button the popover was opened from, which it hangs under.
+  property Item menuAnchor: null
+
+  // Right-clicking any of the widget's buttons brings this up.
+  function openMenu(anchor) {
+    menuAnchor = anchor || panelButton
+    appsOpen = false
     hidePeek()
     peekTimer.stop()
     menuShowsSettings = false
@@ -184,21 +214,28 @@ BarWidget {
       placeCard(menuCard, moreButton, menuCard.width, menuCard.height, -entryGap / 2)
       return
     }
+    var anchor = menuAnchor || panelButton
     var iconCenter = peek.sideEdge + settingsRow.edge + settingsRow.iconSize / 2
-    placeCard(menuCard, panelButton, menuCard.width, menuCard.height, vertical ? 0 : panelButton.width / 2 - iconCenter)
+    placeCard(menuCard, anchor, menuCard.width, menuCard.height, vertical ? 0 : anchor.width / 2 - iconCenter)
   }
 
   // Gone a moment after the pointer has left both the button and the popover.
   function followMenu() {
     if (!menuOpen) return
-    if (settingsOpen || peekDragItem || buttonHover.hovered || moreHover.hovered || menuHover.hovered) menuTimer.stop()
+    if (settingsOpen || peekDragItem || widgetHover.hovered || menuHover.hovered) menuTimer.stop()
     else menuTimer.restart()
   }
 
   Timer {
     id: menuTimer
     interval: 400
-    onTriggered: if (!root.peekDragItem && !root.settingsOpen && !buttonHover.hovered && !moreHover.hovered && !menuHover.hovered) root.menuOpen = false
+    onTriggered: if (!root.peekDragItem && !root.settingsOpen && !widgetHover.hovered && !menuHover.hovered) root.menuOpen = false
+  }
+
+  // Keeps the popover up while the pointer is anywhere on the widget.
+  HoverHandler {
+    id: widgetHover
+    onHoveredChanged: root.followMenu()
   }
 
   // The bar lays a press handler over every widget for rearranging the bar, so a
@@ -268,14 +305,21 @@ BarWidget {
     Hyprland.dispatch("(function() dtpwc_reorder({" + ids.join(",") + "}, " + (from + 1) + ", " + (insert + 1) + ") end)")
   }
 
+  // Where the last of the apps and panel buttons that are shown ends.
+  readonly property real buttonsEnd: {
+    var last = panelButton.visible ? panelButton : appsButton.visible ? appsButton : null
+    if (!last) return 0
+    return vertical ? row.y + last.y + last.height : row.x + last.x + last.width
+  }
+
   MouseArea {
     id: numbersDrag
     parent: root.barSlot || root
     z: 1000
     enabled: !!root.barSlot
-    // Between the button and the ..., which the bar still handles.
-    x: root.vertical ? 0 : panelButton.width
-    y: root.vertical ? panelButton.height : 0
+    // Between the buttons and the ..., which the bar still handles.
+    x: root.vertical ? 0 : root.buttonsEnd
+    y: root.vertical ? root.buttonsEnd : 0
     width: parent.width - x - (root.vertical || !moreButton.visible ? 0 : moreButton.width + root.entryGap)
     height: parent.height - y - (root.vertical && moreButton.visible ? moreButton.height + root.entryGap : 0)
     acceptedButtons: Qt.LeftButton
@@ -575,7 +619,14 @@ BarWidget {
     exclusionMode: ExclusionMode.Ignore
     WlrLayershell.namespace: "dtpietrzak-workspacecontrol-peek"
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: root.settingsOpen ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+    // Exclusive while a new chord is being recorded. OnDemand does not take
+    // the keyboard when this window is already mapped, which it is by the time
+    // Settings is open.
+    WlrLayershell.keyboardFocus: {
+      var pane = settingsLoader.item
+      if (pane && pane.capturing && !pane.capturePrimed) return WlrKeyboardFocus.Exclusive
+      return root.settingsOpen ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+    }
 
     // Settings stay up while they're used, until a click lands anywhere else.
     HyprlandFocusGrab {
@@ -657,15 +708,16 @@ BarWidget {
         anchors.top: parent.top
         anchors.topMargin: peek.barSide === "bottom" ? peek.endEdge : 0
         // The card takes its width from this.
-        readonly property real widest: Math.max(settingsRow.implicitWidth, panelRow.implicitWidth)
-        // Settings comes first, except on a bottom bar, where it sits nearest the bar.
-        readonly property bool panelFirst: peek.barSide === "bottom"
-        implicitHeight: settingsRow.implicitHeight + panelRow.implicitHeight
+        readonly property real widest: Math.max(settingsRow.implicitWidth, panelRow.implicitWidth, appsRow.implicitWidth)
+        // Settings, the panel, then the app list, reversed on a bottom bar so
+        // Settings still sits nearest the bar.
+        readonly property bool reversed: peek.barSide === "bottom"
+        implicitHeight: settingsRow.implicitHeight + panelRow.implicitHeight + appsRow.implicitHeight
         height: implicitHeight
 
         MenuRow {
           id: settingsRow
-          y: menuRows.panelFirst ? panelRow.height : 0
+          y: menuRows.reversed ? appsRow.height + panelRow.height : 0
           width: parent.width
           height: implicitHeight
           label: strings.t("menu.settings")
@@ -686,10 +738,17 @@ BarWidget {
 
         MenuRow {
           id: panelRow
-          y: menuRows.panelFirst ? 0 : settingsRow.height
+          y: menuRows.reversed ? appsRow.height : settingsRow.height
           width: parent.width
           height: implicitHeight
           label: strings.t("menu.openPanel")
+          // Whichever ways of opening the panel are turned on.
+          hint: {
+            var ways = []
+            if (prefs.examine) ways.push(Chord.pretty(prefs.examineKeys))
+            if (prefs.swipe) ways.push(strings.t("menu.swipe"))
+            return ways.join(" / ")
+          }
           onClicked: {
             root.menuOpen = false
             root.togglePanel()
@@ -700,6 +759,40 @@ BarWidget {
             color: Commons.Color.foreground
           }
         }
+
+        MenuRow {
+          id: appsRow
+          y: menuRows.reversed ? 0 : settingsRow.height + panelRow.height
+          width: parent.width
+          height: implicitHeight
+          label: strings.t("menu.openApps")
+          hint: strings.t("search.shortcut")
+          onClicked: {
+            root.menuOpen = false
+            root.toggleApps()
+          }
+
+          AppsMark {
+            anchors.centerIn: parent
+            color: Commons.Color.foreground
+          }
+        }
+
+        // A line between each pair of rows. The panel row is always the middle
+        // one, so they sit on its two edges.
+        Repeater {
+          model: 2
+
+          Rectangle {
+            required property int index
+            readonly property real thin: 1 / Math.max(1, Screen.devicePixelRatio)
+            x: settingsRow.edge
+            y: Math.round(panelRow.y + (index === 0 ? 0 : panelRow.height) - height / 2)
+            width: menuRows.width - settingsRow.edge * 2
+            height: thin
+            color: Qt.alpha(Commons.Color.foreground, 0.15)
+          }
+        }
       }
     }
 
@@ -708,6 +801,62 @@ BarWidget {
       position: root.peekDragPos
       grab: minimizedLoader.item ? minimizedLoader.item.grabPoint : Qt.point(0, 0)
       itemScale: root.peekDragScale
+    }
+  }
+
+  PanelWindow {
+    id: appsWindow
+    screen: peek.screen
+    visible: root.appsOpen || appsCard.opacity > 0
+    color: "transparent"
+    anchors { top: true; left: true; right: true; bottom: true }
+    // The whole screen takes clicks while the list is open, so a click anywhere
+    // off the card closes it, the bar and its apps button included.
+    mask: Region { item: root.appsOpen ? appsCatcher : appsCard }
+    exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.namespace: "dtpietrzak-workspacecontrol-peek"
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.keyboardFocus: root.appsOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+
+    MouseArea {
+      id: appsCatcher
+      anchors.fill: parent
+      enabled: root.appsOpen
+      acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+      onPressed: root.appsOpen = false
+    }
+
+    Rectangle {
+      id: appsCard
+      width: appList.implicitWidth + peek.sideEdge * 2
+      height: Math.min(appList.implicitHeight, Math.max(1, peek.screenHeight - root.barSize)) + peek.endEdge
+      color: workspaceApps.cardBackground(root.bar && root.bar.shell ? root.bar.shell.barConfig : null)
+      topLeftRadius: peek.barSide === "top" || peek.barSide === "left" ? 0 : Style.cornerRadius
+      topRightRadius: peek.barSide === "top" || peek.barSide === "right" ? 0 : Style.cornerRadius
+      bottomLeftRadius: peek.barSide === "bottom" || peek.barSide === "left" ? 0 : Style.cornerRadius
+      bottomRightRadius: peek.barSide === "bottom" || peek.barSide === "right" ? 0 : Style.cornerRadius
+      opacity: root.appsOpen ? 1 : 0
+      Behavior on opacity {
+        NumberAnimation { duration: Style.duration(root.appsOpen ? 180 : 120); easing.type: Easing.OutCubic }
+      }
+
+      onHeightChanged: Qt.callLater(root.placeApps)
+      onWidthChanged: Qt.callLater(root.placeApps)
+
+      // Its edges are part of the card, not a click away from it.
+      MouseArea { anchors.fill: parent; acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton }
+
+      AppListCard {
+        id: appList
+        x: peek.sideEdge
+        y: peek.barSide === "bottom" ? peek.endEdge : 0
+        width: implicitWidth
+        height: appsCard.height - peek.endEdge
+        opened: root.appsOpen
+        fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
+        onLaunchRequested: command => { if (root.bar) root.bar.run(command) }
+        onDismissed: root.appsOpen = false
+      }
     }
   }
 
@@ -735,23 +884,68 @@ BarWidget {
     }
   }
 
-  implicitWidth: row.implicitWidth
-  implicitHeight: row.implicitHeight
+  // Room before the button for a divider like the ones between workspaces. Half
+  // a gap, with the divider on the widget's edge: the icon slot ahead of it
+  // already pads its glyph, so this keeps both sides of the divider even.
+  readonly property int leadGap: Math.round(entryGap / 2)
+
+  implicitWidth: row.implicitWidth + (vertical ? 0 : leadGap)
+  implicitHeight: row.implicitHeight + (vertical ? leadGap : 0)
+
+  // Between the apps button and the panel button, in the middle of the gap.
+  Rectangle {
+    visible: appsButton.visible && panelButton.visible
+    readonly property real thin: 1 / Math.max(1, Screen.devicePixelRatio)
+    x: root.vertical ? Math.round((root.width - width) / 2) : row.x + panelButton.x - root.entryGap / 2
+    y: root.vertical ? row.y + panelButton.y - root.entryGap / 2 : Math.round((root.height - height) / 2)
+    width: root.vertical ? Style.space(12) : thin
+    height: root.vertical ? thin : Style.space(12)
+    color: Qt.alpha(root.barForeground, 0.3)
+  }
+
+  // The divider in front of the widget, on its leading edge.
+  Rectangle {
+    readonly property real thin: 1 / Math.max(1, Screen.devicePixelRatio)
+    x: root.vertical ? Math.round((root.width - width) / 2) : 0
+    y: root.vertical ? 0 : Math.round((root.height - height) / 2)
+    width: root.vertical ? Style.space(12) : thin
+    height: root.vertical ? thin : Style.space(12)
+    color: Qt.alpha(root.barForeground, 0.3)
+  }
 
   GridLayout {
     id: row
     anchors.fill: parent
-    columns: root.vertical ? 1 : root.workspaceIds.length + 2
+    anchors.leftMargin: root.vertical ? 0 : root.leadGap
+    anchors.topMargin: root.vertical ? root.leadGap : 0
+    columns: root.vertical ? 1 : root.workspaceIds.length + 3
     columnSpacing: root.vertical ? 0 : root.entryGap
     rowSpacing: root.vertical ? root.entryGap : 0
+
+    // Every app, in a card like the rest of this widget's.
+    BarIconButton {
+      id: appsButton
+      bar: root.bar
+      hasVisualContent: prefs.appsButton
+      onPressed: function(button) {
+        if (button === Qt.RightButton) root.openMenu(appsButton)
+        else root.toggleApps()
+      }
+
+      AppsMark {
+        anchors.centerIn: parent
+        scale: appsButton.pressScale
+        color: appsButton.foreground
+      }
+    }
 
     BarIconButton {
       id: panelButton
       bar: root.bar
-      hasVisualContent: true
+      hasVisualContent: prefs.panelButton
       onPressed: function(button) {
         if (button === Qt.RightButton) {
-          root.openMenu()
+          root.openMenu(panelButton)
         } else {
           root.menuOpen = false
           root.togglePanel()
@@ -800,7 +994,10 @@ BarWidget {
           verticalPadding: 6
           fixedWidth: root.vertical ? root.barSize : Style.space(20)
           fixedHeight: root.barSize
-          onPressed: function() { root.focusWorkspace(entry.modelData) }
+          onPressed: function(button) {
+            if (button === Qt.RightButton) root.openMenu(number)
+            else root.focusWorkspace(entry.modelData)
+          }
 
           // Lights up the whole workspace while a window is held over it.
           Rectangle {
@@ -844,7 +1041,10 @@ BarWidget {
           hasVisualContent: entry.apps.length > 0
           fixedWidth: root.vertical ? root.barSize : icons.implicitWidth + Style.space(6)
           fixedHeight: root.vertical ? icons.implicitHeight + Style.space(6) : root.barSize
-          onPressed: function() { root.focusWorkspace(entry.modelData) }
+          onPressed: function(button) {
+            if (button === Qt.RightButton) root.openMenu(appIcons)
+            else root.focusWorkspace(entry.modelData)
+          }
 
           Grid {
             id: icons
@@ -883,7 +1083,10 @@ BarWidget {
       verticalPadding: 6
       fixedWidth: root.vertical ? root.barSize : Style.space(20)
       fixedHeight: root.barSize
-      onPressed: root.toggleMinimized()
+      onPressed: function(button) {
+        if (button === Qt.RightButton) root.openMenu(moreButton)
+        else root.toggleMinimized()
+      }
 
       HoverHandler {
         id: moreHover

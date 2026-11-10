@@ -7,6 +7,8 @@ Item {
   id: row
 
   property string label: ""
+  // A dim note at the far end, such as the shortcut for this choice.
+  property string hint: ""
   property string fontFamily: Style.font.family
   // The icon, drawn centered in its slot.
   default property alias icon: iconSlot.data
@@ -17,6 +19,7 @@ Item {
   signal clicked()
 
   implicitWidth: text.implicitWidth + iconSize + edge * 3
+    + (hint !== "" ? hintText.implicitWidth + edge * 2 : 0)
   implicitHeight: Math.max(iconSize, text.implicitHeight) + edge
 
   Rectangle {
@@ -44,6 +47,20 @@ Item {
     textFormat: Text.PlainText
     text: row.label
     color: Commons.Color.foreground
+    font.family: Style.font.family
+    font.pixelSize: Style.font.body
+  }
+
+  Text {
+    id: hintText
+    visible: row.hint !== ""
+    anchors.right: parent.right
+    anchors.rightMargin: row.edge
+    anchors.verticalCenter: parent.verticalCenter
+    textFormat: Text.PlainText
+    text: row.hint
+    color: Commons.Color.foreground
+    opacity: 0.4
     font.family: Style.font.family
     font.pixelSize: Style.font.body
   }

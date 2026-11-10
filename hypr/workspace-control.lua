@@ -190,6 +190,68 @@ local function enabled(setting, default)
   return default
 end
 
+-- A string setting, in the canonical "SUPER + E" form Chord.js writes.
+local function setting_text(setting)
+  local config = os.getenv("XDG_CONFIG_HOME") or (os.getenv("HOME") .. "/.config")
+  local file = io.open(config .. "/omarchy/io.github.dtpietrzak.workspace-control.json")
+  if not file then
+    return nil
+  end
+  local text = file:read("a")
+  file:close()
+  return text:match('"' .. setting .. '"%s*:%s*"([^"]*)"')
+end
+
+-- The same key names as Chord.js. An unknown name makes Hyprland abort this
+-- file, which would also drop the swipe registered below.
+local EXAMINE_KEYS = {
+  ESCAPE = true, RETURN = true, SPACE = true, TAB = true, BACKSPACE = true, DELETE = true,
+  LEFT = true, RIGHT = true, UP = true, DOWN = true, HOME = true, END = true,
+  PAGE_UP = true, PAGE_DOWN = true, INSERT = true,
+  COMMA = true, PERIOD = true, SLASH = true, GRAVE = true, MINUS = true, EQUAL = true,
+  BRACKETLEFT = true, BRACKETRIGHT = true, SEMICOLON = true, APOSTROPHE = true,
+  BACKSLASH = true, PRINT = true,
+}
+for byte = string.byte("A"), string.byte("Z") do
+  EXAMINE_KEYS[string.char(byte)] = true
+end
+for digit = 0, 9 do
+  EXAMINE_KEYS[tostring(digit)] = true
+end
+for fn = 1, 12 do
+  EXAMINE_KEYS["F" .. fn] = true
+end
+
+local function examine_binding()
+  local raw = setting_text("examineKeys")
+  if not raw or not raw:match("^[A-Z0-9_]+( %+ [A-Z0-9_]+)+$") then
+    return "SUPER + E"
+  end
+  local has_holder = false
+  local key = nil
+  for token in raw:gmatch("[A-Z0-9_]+") do
+    if token == "SUPER" or token == "CTRL" or token == "ALT" then
+      has_holder = true
+    elseif token ~= "SHIFT" then
+      if key or not EXAMINE_KEYS[token] then
+        return "SUPER + E"
+      end
+      key = token
+    end
+  end
+  if not (has_holder and key) then
+    return "SUPER + E"
+  end
+  return raw
+end
+
+-- On unless turned off. Super+E is free in Omarchy, so this does not wait to
+-- be enabled the way the arrow hotkeys do. A chosen chord replaces whatever
+-- is already on it; a Hyprland reload puts the old binding back.
+if enabled("examine", true) then
+  o.rebind(examine_binding(), "Examine Workspaces", "omarchy-shell shell call io.github.dtpietrzak.workspace-control toggle ''")
+end
+
 -- These replace Omarchy's defaults on the same keys, which swap tiled windows,
 -- so they wait until they're turned on in the settings.
 if enabled("hotkeys", false) then
