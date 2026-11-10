@@ -32,6 +32,9 @@ Item {
   property string query: ""
   property var apps: []
   property int selectedIndex: -1
+  // Turned over for a bottom bar: the search field at the bottom, the list
+  // growing up from it with the first row nearest the field.
+  property bool flipped: false
   property var pinnedIds: ({})
   // The app the right-click menu is for, and the one being uninstalled.
   property var menuApp: null
@@ -148,7 +151,8 @@ Item {
   function move(delta) {
     if (apps.length === 0) return
     var start = selectedIndex < 0 ? 0 : selectedIndex
-    selectedIndex = Math.max(0, Math.min(apps.length - 1, start + delta))
+    // Up is toward the top of the card, which is higher in a flipped list.
+    selectedIndex = Math.max(0, Math.min(apps.length - 1, start + (flipped ? -delta : delta)))
     list.positionViewAtIndex(selectedIndex, ListView.Contain)
   }
 
@@ -320,6 +324,7 @@ Item {
 
   Item {
     id: fieldBox
+    y: root.flipped ? parent.height - height : 0
     width: parent.width
     // The same room as the menu's search line: a half edge of card padding, a
     // line one row tall, and a full edge before the first row.
@@ -330,7 +335,7 @@ Item {
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
-      anchors.verticalCenterOffset: -root.edge / 4
+      anchors.verticalCenterOffset: root.flipped ? root.edge / 4 : -root.edge / 4
       anchors.leftMargin: root.edge + root.edge / 2
       anchors.rightMargin: root.edge + root.edge / 2 + (shortcutHint.visible ? shortcutHint.implicitWidth + root.edge : 0)
       focus: root.opened
@@ -379,12 +384,13 @@ Item {
 
   ListView {
     id: list
-    y: fieldBox.height
+    y: root.flipped ? root.edge / 2 : fieldBox.height
     x: root.edge / 2
     width: parent.width - root.edge - root.gutter
-    height: parent.height - y - root.edge / 2
+    height: parent.height - fieldBox.height - root.edge / 2
     model: root.apps
     clip: true
+    verticalLayoutDirection: root.flipped ? ListView.BottomToTop : ListView.TopToBottom
     spacing: 0
     boundsBehavior: Flickable.StopAtBounds
     keyNavigationEnabled: false
@@ -534,7 +540,7 @@ Item {
 
   Text {
     anchors.horizontalCenter: list.horizontalCenter
-    y: list.y + root.edge
+    y: root.flipped ? list.y + list.height - height - root.edge : list.y + root.edge
     width: list.width - root.edge * 2
     horizontalAlignment: Text.AlignHCenter
     visible: root.apps.length === 0

@@ -848,6 +848,7 @@ BarWidget {
 
       AppListCard {
         id: appList
+        flipped: peek.barSide === "bottom"
         x: peek.sideEdge
         y: peek.barSide === "bottom" ? peek.endEdge : 0
         width: implicitWidth
