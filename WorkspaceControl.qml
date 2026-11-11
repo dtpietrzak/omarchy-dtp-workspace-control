@@ -55,7 +55,32 @@ Item {
   // they do, it follows Hyprland, and a late event must not rewind an arrow.
   property int viewedId: -1
   property bool slid: false
-  onActiveIdChanged: if (activeId > 0 && !slid) viewedId = activeId
+  // When an arrow last switched the workspace. Events for a little while after
+  // are its own, arriving late.
+  property real ownSwitchAt: 0
+  onActiveIdChanged: followActive()
+
+  // A switch from outside the panel, as Super and a number or Super+Shift and
+  // an arrow do while it is open, moves it the same as its own arrows: the
+  // workspace it shows, the window list and the selection all follow.
+  function followActive() {
+    if (activeId <= 0) return
+    if (slid) {
+      // Its own arrow landing, or a late event from before it.
+      if (activeId === viewedId) return
+      if (slideDispatch.running || Date.now() - ownSwitchAt < 400) return
+    }
+    viewedId = activeId
+    if (!opened) return
+    if (!hoverTile && hoverCardId < 1 && !dragTile) {
+      listLinger.stop()
+      listId = viewedId
+    }
+    // Hyprland hands the keyboard to a window on the workspace it just went to.
+    // Keep it the way an arrow does, so Enter and the rest still reach the panel.
+    slid = true
+    noteFocusSteal()
+  }
 
   function blockOf(id) { return Math.floor((id - 1) / slots) }
   function slotOf(id) { return (id - 1) % slots + 1 }
@@ -107,6 +132,8 @@ Item {
   // Window being dragged, and the cursor in window coordinates.
   property Item dragTile: null
   property point dragPos: Qt.point(0, 0)
+  // The spot on the mini view it was picked up by, which stays under the pointer.
+  property point dragGrab: Qt.point(0, 0)
   property int hoverId: -1
   // Mini view under the pointer. It and the one being dragged stay at full
   // opacity with a border, and every other mini view dims.
@@ -128,7 +155,51 @@ Item {
   // its list doesn't lose the list. Letting go returns to homeListId.
   property int listId: -1
   onPointedIdChanged: followPointer()
-  onDragTileChanged: followPointer()
+  onDragTileChanged: {
+    followPointer()
+    // Let go or put down: a window hidden while it was carried comes back. One
+    // sent to another workspace waits until it is there, so it never flashes here.
+    if (!dragTile) Qt.callLater(function() {
+      if (root.droppedAway) carriedHider.showAfterMove()
+      else carriedHider.show()
+      root.droppedAway = false
+    })
+    if (!dragTile) return
+    lastCarried = null
+    // Picked up, it shrinks to carryScale around the spot it is held by, and a
+    // picture of it is kept for when it lands.
+    dragShot = null
+    dragThumbShot = null
+    dragScale = 1
+    dragShrink.to = root.carryScale
+    if (flightsOn) dragShrink.restart()
+    var picked = dragTile
+    picked.grabToImage(function(result) { if (root.dragTile === picked) root.dragShot = result })
+    // A row from the list lands as its window's mini view, so keep that too.
+    var thumb = picked.listRow ? tileFor(picked.modelData) : null
+    if (thumb) thumb.grabToImage(function(result) { if (root.dragTile === picked) root.dragThumbShot = result })
+  }
+  property var dragThumbShot: null
+
+  // The mini view showing this window, on whichever card it is.
+  function tileFor(toplevel) {
+    var address = workspaceApps.windowAddress(toplevel)
+    if (address === "") return null
+    for (var c = 0; c < cards.children.length; c++) {
+      var card = cards.children[c]
+      if (!card.tiles) continue
+      for (var i = 0; i < card.tiles.count; i++) {
+        var tile = card.tiles.itemAt(i)
+        if (tile && tile.placed && workspaceApps.windowAddress(tile.modelData) === address) return tile
+      }
+    }
+    return null
+  }
+  property real dragScale: 1
+  // How big a carried mini view or list row is, against its full size.
+  readonly property real carryScale: 0.75
+  property var dragShot: null
+  NumberAnimation { id: dragShrink; target: root; property: "dragScale"; to: root.carryScale; duration: Style.duration(180); easing.type: Easing.OutCubic }
   function followPointer() {
     if (dragTile && dragTile.listRow) {
       // The row being dragged lives in the list, which has to stay.
@@ -177,7 +248,19 @@ Item {
     return -1
   }
 
+  // The row of the mini view under the pointer, when the list is showing its
+  // workspace. Hovering a mini view picks its row, the same as Up and Down do.
+  function pickHoveredWindow() {
+    if (!hoverTile || hoverTile.listRow || hoverTile.wsId !== listId) return false
+    var address = workspaceApps.windowAddress(hoverTile.modelData)
+    if (address === "" || listedIndex(address) < 0) return false
+    windowPick = address
+    return true
+  }
+  onHoverTileChanged: pickHoveredWindow()
+
   function preferFocusedWindow() {
+    if (pickHoveredWindow()) return
     var windows = listWindows
     for (var i = 0; i < windows.length; i++) {
       if (windows[i].activated) {
@@ -374,6 +457,7 @@ Item {
 
   function commitSlide() {
     if (!opened || pendingSlot < 1) return
+    ownSwitchAt = Date.now()
     var slot = pendingSlot
     if (monitor)
       workspaceApps.dispatchWithoutWarp('o.workspaces.focus(' + slot + ', "' + monitor.name + '")')
@@ -637,11 +721,161 @@ Item {
     return best
   }
 
-  function dragTo(tile, x, y) {
+  // grab is the spot on the tile the drag started from, taken when it starts.
+  function dragTo(tile, x, y, grab) {
+    if (dragTile !== tile) dragGrab = grab || Qt.point(tile.width / 2, tile.height / 2)
     dragTile = tile
     dragPos = Qt.point(x, y)
     var card = cardAt(x, y)
     hoverId = card ? card.wsId : -1
+    carryWindow(tile, card)
+  }
+
+  // The real window goes where its mini view is carried: over its own card, to
+  // the same spot on the screen as the mini view's spot on the card; above the
+  // band, on the workspace being shown, straight under the pointer. Over
+  // another card it waits where it is, for the drop to send it there. Only a
+  // floating window has a spot of its own to go to.
+  property var carried: null
+  function carryWindow(tile, card) {
+    // Carried off its own card, a window of the workspace being shown leaves
+    // the screen. Over its own card, or up above the band, it is there.
+    var away = !!tile && tile.wsId === activeId && (card ? card.wsId !== tile.wsId : dragPos.y >= band.y)
+    setWindowHidden(tile ? tile.modelData : null, away)
+    var spot = null
+    var floating = !!tile && !tile.listRow && tile.placed && !!tile.ipc.floating && !!monitor && tile.ratio > 0
+    if (floating && card && card.wsId === tile.wsId) {
+      var inCard = card.mapFromItem(panel.contentItem, dragPos.x, dragPos.y)
+      spot = Qt.point(monitor.x + (inCard.x - dragGrab.x) / tile.ratio, monitor.y + (inCard.y - dragGrab.y) / tile.ratio)
+    } else if (floating && !card && tile.wsId === activeId && dragPos.y < band.y) {
+      spot = Qt.point(monitor.x + dragPos.x - dragGrab.x / tile.ratio, monitor.y + dragPos.y - dragGrab.y / tile.ratio)
+    }
+    // Full size over its own card, where it stands for the real window exactly.
+    var scaleTo = spot && card ? 1 : carryScale
+    if (flightsOn && dragShrink.to !== scaleTo) {
+      dragShrink.to = scaleTo
+      dragShrink.restart()
+    }
+    if (!spot) return
+    var width = tile.ipc.size[0], height = tile.ipc.size[1]
+    carried = {
+      address: workspaceApps.windowAddress(tile.modelData),
+      x: Math.round(Math.max(monitor.x, Math.min(monitor.x + sw - width, spot.x))),
+      y: Math.round(Math.max(monitor.y, Math.min(monitor.y + sh - height, spot.y)))
+    }
+    if (!carryTimer.running) carryTimer.start()
+  }
+
+  // Cartoon speed lines riding on the trailing edge of whatever is moving
+  // along the row: three thin lines, at its top, middle and bottom with the
+  // middle one longest, that stretch out as it sets off and pull back in as it
+  // lands. amount runs 0 to 1 to 0 over the move. They are never longer than
+  // traveled, the distance the trailing edge has come, so they never reach
+  // back past where it started.
+  component SpeedLines: Item {
+    id: lines
+    property real amount: 0
+    property int dir: 1
+    property real traveled: 0
+    readonly property real longest: Math.min(root.cardW * 0.45, traveled)
+    readonly property real thick: Math.max(1.5, Style.space(2))
+    anchors.fill: parent
+    visible: amount > 0.01 && longest > 2
+
+    Repeater {
+      model: [[0.3, 0.7], [0.5, 1], [0.7, 0.55]]
+
+      Rectangle {
+        required property var modelData
+        readonly property real len: lines.longest * modelData[1] * lines.amount
+        x: lines.dir > 0 ? -len : lines.width
+        y: lines.height * modelData[0] - height / 2
+        width: len
+        height: lines.thick
+        radius: height / 2
+        color: Qt.alpha(Commons.Color.foreground, 0.45)
+      }
+    }
+  }
+
+  // Out quickly as it sets off, held, then drawn back in by the time it lands.
+  function speedAmount(t) {
+    if (t <= 0 || t >= 1) return 0
+    var grow = Math.min(1, t / 0.15)
+    var shrink = t < 0.55 ? 1 : 1 - Math.pow((t - 0.55) / 0.45, 2)
+    return grow * shrink
+  }
+
+  // How thick the impact lines off a braking edge are, and how long after the
+  // brake they flash.
+  readonly property int impactDelay: 200
+  readonly property real impactThickness: Math.max(1.5, Style.space(2))
+
+  // Splashes are blue on the workspace being shown, and grey on any other.
+  readonly property color quietSplashColor: Qt.alpha(Commons.Color.foreground, 0.55)
+  function splashFor(id) { return id === activeId ? panelSplash : quietSplash }
+  function clearImpacts() {
+    panelSplash.clearImpacts()
+    quietSplash.clearImpacts()
+  }
+
+  // Where on the screen a window dropped on this card goes: the spot its mini
+  // view was let go at, or, for a row from the list, centered on the pointer.
+  // Only a floating window has a spot of its own.
+  function dropSpot(tile, card) {
+    var toplevel = tile ? tile.modelData : null
+    var ipc = toplevel && toplevel.lastIpcObject ? toplevel.lastIpcObject : null
+    if (!card || !monitor || !ipc || !ipc.floating || !ipc.size || sw <= 0) return null
+    var ratio = root.cardW / sw
+    var inCard = card.mapFromItem(panel.contentItem, dragPos.x, dragPos.y)
+    var width = ipc.size[0], height = ipc.size[1]
+    var left = tile.listRow ? inCard.x / ratio - width / 2 : (inCard.x - dragGrab.x) / ratio
+    var top = tile.listRow ? inCard.y / ratio - height / 2 : (inCard.y - dragGrab.y) / ratio
+    return {
+      address: workspaceApps.windowAddress(toplevel),
+      x: Math.round(monitor.x + Math.max(0, Math.min(sw - width, left))),
+      y: Math.round(monitor.y + Math.max(0, Math.min(sh - height, top)))
+    }
+  }
+
+  // Windows just dropped on another workspace, and the spot each was sent to,
+  // so their new mini view starts there and not where the window used to be.
+  property var placedTiles: ({})
+
+  // The window taken off the screen while it is carried away from its card.
+  WindowHider { id: carriedHider }
+
+  function setWindowHidden(toplevel, hide) {
+    var address = toplevel ? workspaceApps.windowAddress(toplevel) : ""
+    if (hide && address !== "") carriedHider.hide(address)
+    else carriedHider.show()
+  }
+
+  // Set by a drop that sends the carried window to another workspace.
+  property bool droppedAway: false
+  // That window, kept off its old card until the move gets there.
+  property string leavingAddress: ""
+  Timer {
+    id: leavingTimer
+    interval: 600
+    onTriggered: root.leavingAddress = ""
+  }
+
+  // The last spot sent, so a drop can show it on the mini view right away.
+  property var lastCarried: null
+  function sendCarried() {
+    var move = carried
+    carried = null
+    if (!move || move.address === "") return
+    lastCarried = move
+    Hyprland.dispatch('hl.dsp.window.move({ x = ' + move.x + ', y = ' + move.y + ', window = "address:' + move.address + '" })')
+  }
+
+  // Moves go out at most every 30ms, the latest spot each time.
+  Timer {
+    id: carryTimer
+    interval: 30
+    onTriggered: root.sendCarried()
   }
 
   // Ending a drag on the touchpad also sends a click at the drop point, a
@@ -662,11 +896,105 @@ Item {
 
   function drop() {
     droppedAt = Date.now()
+    // Wherever the real window was being carried, it ends up there.
+    carryTimer.stop()
+    sendCarried()
+    refresh.restart()
     var tile = dragTile
+    if (tile && !tile.listRow && lastCarried && lastCarried.address === workspaceApps.windowAddress(tile.modelData))
+      tile.movedTo = Qt.point(lastCarried.x, lastCarried.y)
+    lastCarried = null
     var target = hoverId
     dragTile = null
     hoverId = -1
-    if (tile && target > 0 && target !== tile.wsId) moveWindow(tile.modelData, target)
+    if (tile && target > 0 && target !== tile.wsId) {
+      droppedAway = true
+      leavingAddress = workspaceApps.windowAddress(tile.modelData)
+      leavingTimer.restart()
+      // It grows back to full size as it settles into the spot the window goes
+      // to, kept on the screen the same way, then splashes as it lands.
+      var held = tile.listRow ? Qt.point(tile.grabX, tile.height / 2) : dragGrab
+      var dropCard = cardAt(dragPos.x, dragPos.y)
+      var spot = dropSpot(tile, dropCard)
+      var carriedRect = Qt.rect(dragPos.x - held.x * dragScale, dragPos.y - held.y * dragScale, tile.width * dragScale, tile.height * dragScale)
+      var landRect = Qt.rect(dragPos.x - held.x, dragPos.y - held.y, tile.width, tile.height)
+      var ipc = tile.modelData ? tile.modelData.lastIpcObject : null
+      var ratio = sw > 0 ? root.cardW / sw : 0
+      if (tile.listRow && ipc && ipc.size && ratio > 0) {
+        // A row from the list turns into its window's mini view as it lands:
+        // that size, in the spot the window goes to, or centered on the pointer.
+        var thumbW = ipc.size[0] * ratio, thumbH = ipc.size[1] * ratio
+        landRect = Qt.rect(dragPos.x - thumbW / 2, dragPos.y - thumbH / 2, thumbW, thumbH)
+        if (spot && monitor) {
+          var rowAt = dropCard.mapToItem(panel.contentItem, (spot.x - monitor.x) * ratio, (spot.y - monitor.y) * ratio)
+          landRect = Qt.rect(rowAt.x, rowAt.y, thumbW, thumbH)
+        }
+      } else if (spot && !tile.listRow && monitor) {
+        var at = dropCard.mapToItem(panel.contentItem, (spot.x - monitor.x) * ratio, (spot.y - monitor.y) * ratio)
+        landRect = Qt.rect(at.x, at.y, tile.width, tile.height)
+      }
+      if (flightsOn) landing.land(dragShot, carriedRect, landRect, target, tile.listRow ? dragThumbShot : null)
+      moveWindow(tile.modelData, target)
+      if (spot) {
+        // And on the new workspace it goes where it was let go.
+        Hyprland.dispatch('hl.dsp.window.move({ x = ' + spot.x + ', y = ' + spot.y + ', window = "address:' + spot.address + '" })')
+        placedTiles[spot.address] = { x: spot.x, y: spot.y, at: Date.now() }
+      }
+    }
+    dragShrink.stop()
+    dragScale = 1
+  }
+
+  // Where each window's mini view was when it left its card, and new mini views
+  // just made, each kept for a moment. A window whose mini view leaves one card
+  // as it turns up on another, in either order, has been moved there, as
+  // Super+Shift and a number does, and flies across from where it was.
+  property var leftTiles: ({})
+  property var newTiles: ({})
+  readonly property bool flightsOn: prefs.panelAnimation && !Style.reduceMotion && shown
+
+  function tileLeft(tile) {
+    if (!flightsOn || !tile.placed) return
+    var address = workspaceApps.windowAddress(tile.modelData)
+    if (address === "") return
+    var at = tile.mapToItem(band, 0, 0)
+    var rect = Qt.rect(at.x, at.y, tile.width, tile.height)
+    var arrived = newTiles[address]
+    delete newTiles[address]
+    if (arrived && arrived.tile && arrived.tile.wsId !== tile.wsId && Date.now() - arrived.at < 500) {
+      startFlight(arrived.tile, rect)
+      return
+    }
+    leftTiles[address] = { wsId: tile.wsId, rect: rect, at: Date.now() }
+  }
+
+  function tileArrived(tile) {
+    var address = workspaceApps.windowAddress(tile.modelData)
+    if (address === "") return
+    if (address === leavingAddress) {
+      leavingAddress = ""
+      leavingTimer.stop()
+    }
+    var placed = placedTiles[address]
+    if (placed) {
+      delete placedTiles[address]
+      if (Date.now() - placed.at < 1000) tile.movedTo = Qt.point(placed.x, placed.y)
+    }
+    if (!flightsOn) return
+    var left = leftTiles[address]
+    delete leftTiles[address]
+    if (left && left.wsId !== tile.wsId && Date.now() - left.at < 500) {
+      startFlight(tile, left.rect)
+      return
+    }
+    newTiles[address] = { tile: tile, at: Date.now() }
+  }
+
+  // Not for a drop, which splashes where it lands, or a reorder, which
+  // renumbers every window it passes.
+  function startFlight(tile, from) {
+    if (Date.now() - droppedAt < 800) return
+    Qt.callLater(function() { flyer.fly(tile, from) })
   }
 
   property int heldId: -1
@@ -925,7 +1253,13 @@ Item {
           var dx = mouse.x - pressPoint.x
           var dy = mouse.y - pressPoint.y
           if (root.dragTile !== pressedTile && dx * dx + dy * dy < 36) return
-          root.dragTo(pressedTile, mouse.x, mouse.y)
+          // The same spot on the mini view as on the window it was pressed on.
+          var tile = pressedTile
+          var grab = root.monitor && tile.placed
+            ? Qt.point((pressPoint.x + root.monitor.x - tile.ipc.at[0]) * tile.ratio,
+                       (pressPoint.y + root.monitor.y - tile.ipc.at[1]) * tile.ratio)
+            : null
+          root.dragTo(tile, mouse.x, mouse.y, grab)
         }
         onReleased: {
           pressedTile = null
@@ -959,7 +1293,7 @@ Item {
         onDismiss: root.close()
         limit: {
           var floor = band.y
-          if (windowList.visible) floor = Math.min(floor, windowList.y)
+          if (windowList.wanted) floor = Math.min(floor, band.y - windowList.fullHeight)
           if (popupCard.visible) floor = Math.min(floor, popupCard.y)
           return Math.max(0, floor - Style.spacing.xxl)
         }
@@ -1113,7 +1447,9 @@ Item {
               radius: Style.cornerRadius
               color: hovered ? Style.selectedAccentFill : (selected ? Style.hoverFill : Style.normalFill)
               border.width: active || selected ? Math.max(1, Style.space(2)) : Style.spacing.hairline
-              border.color: hovered || active ? Commons.Color.accent : Style.normalBorderColor
+              // The current workspace's accent is the outline over the row, so
+              // it can move from card to card.
+              border.color: hovered ? Commons.Color.accent : Style.normalBorderColor
 
               MouseArea {
                 id: cardMouse
@@ -1142,10 +1478,24 @@ Item {
                   readonly property int stackIndex: root.stackOrder[workspaceApps.windowAddress(modelData)] || 0
                   readonly property bool placed: !!ipc.at && !!ipc.size && !ipc.hidden
                   readonly property string appClass: String(ipc["class"] || modelData.title || "?")
+                  // Where a drop just sent the real window, until Hyprland says it
+                  // is there. Without it the mini view shows the old spot first.
+                  property var movedTo: null
+                  readonly property real atX: movedTo ? movedTo.x : (placed ? ipc.at[0] : 0)
+                  readonly property real atY: movedTo ? movedTo.y : (placed ? ipc.at[1] : 0)
+                  onIpcChanged: if (movedTo && placed && Math.abs(ipc.at[0] - movedTo.x) < 2 && Math.abs(ipc.at[1] - movedTo.y) < 2) movedTo = null
+                  Timer {
+                    // In case Hyprland put it somewhere a little different.
+                    running: !!tile.movedTo
+                    interval: 1000
+                    onTriggered: tile.movedTo = null
+                  }
 
-                  visible: placed
-                  x: placed ? (ipc.at[0] - (root.monitor ? root.monitor.x : 0)) * ratio : 0
-                  y: placed ? (ipc.at[1] - (root.monitor ? root.monitor.y : 0)) * ratio : 0
+                  // Not shown on its old card after a drop sends it elsewhere,
+                  // while the move is on its way.
+                  visible: placed && root.leavingAddress !== workspaceApps.windowAddress(modelData)
+                  x: placed ? (atX - (root.monitor ? root.monitor.x : 0)) * ratio : 0
+                  y: placed ? (atY - (root.monitor ? root.monitor.y : 0)) * ratio : 0
                   width: placed ? Math.max(2, ipc.size[0] * ratio) : 0
                   height: placed ? Math.max(2, ipc.size[1] * ratio) : 0
                   z: (ipc.floating ? 1000 : 0) + stackIndex
@@ -1159,7 +1509,9 @@ Item {
                   Component.onDestruction: {
                     if (root.dragTile === tile) root.dragTile = null
                     if (root.hoverTile === tile) root.hoverTile = null
+                    root.tileLeft(tile)
                   }
+                  Component.onCompleted: root.tileArrived(tile)
 
                   Rectangle {
                     anchors.fill: parent
@@ -1223,7 +1575,7 @@ Item {
                       var dy = mouse.y - pressPoint.y
                       if (root.dragTile !== tile && dx * dx + dy * dy < 36) return
                       var point = inWindow(mouse)
-                      root.dragTo(tile, point.x, point.y)
+                      root.dragTo(tile, point.x, point.y, pressPoint)
                     }
                     onReleased: {
                       if (root.dragTile === tile) root.drop()
@@ -1236,6 +1588,226 @@ Item {
 
             }
           }
+        }
+
+        // The accent outline on the current workspace's card. It is one outline
+        // over the row, so it can move to another workspace's card: it keeps
+        // its height the whole way, and its leading edge runs ahead while the
+        // trailing edge follows, so it elongates on the way. Each edge only
+        // ever moves toward its spot, so it never goes past the card.
+        Rectangle {
+          id: outline
+          readonly property int index: root.workspaceIds.indexOf(root.activeId)
+          readonly property real restLeft: cards.x + index * (root.cardW + root.cardGap)
+          readonly property real restRight: restLeft + root.cardW
+          readonly property bool animates: prefs.panelAnimation && !Style.reduceMotion && root.shown
+          property int lastIndex: -1
+
+          // The move, over travelT (0 to 1): where each edge starts and ends,
+          // and which way it is going. The ends are set only in place(): read
+          // live, the outline would be on the new card before the move began.
+          property real fromLeft: restLeft
+          property real fromRight: restRight
+          property real toLeft: restLeft
+          property real toRight: restRight
+          property real travelT: 1
+          property int travelDir: 1
+          // How far this move goes, for how big its splash is, and whether it
+          // has splashed yet.
+          property int travelSteps: 1
+          property bool braked: true
+
+          // Speed lines ride its trailing edge while it moves, and as its
+          // leading edge reaches the card, impact lines flash off it.
+          onTravelTChanged: {
+            if (travelT >= 1 || !animates) return
+            if (!braked && travelT >= 0.6) {
+              braked = true
+              var edge = travelDir > 0 ? toRight : toLeft
+              if (prefs.panelImpacts) panelSplash.impactLines(edge, y, y + height, travelDir, root.impactThickness, Math.min(1, 0.75 + 0.1 * (travelSteps - 1)), root.impactDelay)
+            }
+          }
+
+          function clamp01(t) { return Math.max(0, Math.min(1, t)) }
+          function outCubic(t) { t = clamp01(t); return 1 - Math.pow(1 - t, 3) }
+          function inOutCubic(t) { t = clamp01(t); return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2 }
+          // No longer than this, however far it goes.
+          readonly property real longest: root.cardW * 1.3
+          readonly property real leadEdge: travelDir > 0
+            ? fromRight + (toRight - fromRight) * outCubic(travelT)
+            : fromLeft + (toLeft - fromLeft) * outCubic(travelT)
+          readonly property real trailEdge: travelDir > 0
+            ? Math.max(fromLeft + (toLeft - fromLeft) * inOutCubic(travelT), leadEdge - longest)
+            : Math.min(fromRight + (toRight - fromRight) * inOutCubic(travelT), leadEdge + longest)
+
+          visible: index >= 0 && root.cardW > 0
+          x: travelDir > 0 ? trailEdge : leadEdge
+          width: Math.abs(leadEdge - trailEdge)
+          y: cards.y
+          height: root.cardH
+          color: "transparent"
+          radius: Style.cornerRadius
+          border.width: Math.max(1, Style.space(2))
+          border.color: Commons.Color.accent
+          // Faded with the card under it.
+          opacity: root.reorderId === root.activeId ? 0.35 : (root.selectedId > 0 && root.selectedId !== root.activeId ? 0.5 : 1)
+          Behavior on opacity {
+            enabled: root.reorderId <= 0
+            NumberAnimation { duration: Style.duration(root.fadeMs); easing.type: Easing.OutCubic }
+          }
+
+          function place() {
+            var moved = index >= 0 && lastIndex >= 0 && index !== lastIndex
+            // The same card moved, or both its edges asking twice: a move under
+            // way just ends in the new place.
+            if (!moved && slide.running) {
+              toLeft = restLeft
+              toRight = restRight
+              return
+            }
+            var steps = Math.max(1, Math.abs(index - lastIndex))
+            lastIndex = index
+            // From wherever it is now, so a quick second press carries on.
+            var nowLeft = x
+            var nowRight = x + width
+            slide.stop()
+            if (!moved || !animates) {
+              fromLeft = restLeft
+              fromRight = restRight
+              toLeft = restLeft
+              toRight = restRight
+              travelT = 1
+              return
+            }
+            travelDir = restLeft >= nowLeft ? 1 : -1
+            travelSteps = steps
+            braked = false
+            // Moving again: no impact lines from the last stop.
+            root.clearImpacts()
+            fromLeft = nowLeft
+            fromRight = nowRight
+            toLeft = restLeft
+            toRight = restRight
+            travelT = 0
+            slide.duration = 360 * (1 + 0.12 * (steps - 1))
+            slide.start()
+          }
+
+          onRestLeftChanged: Qt.callLater(place)
+          onRestRightChanged: Qt.callLater(place)
+          onAnimatesChanged: if (!animates) place()
+          Component.onCompleted: place()
+
+          NumberAnimation { id: slide; target: outline; property: "travelT"; from: 0; to: 1 }
+
+          SpeedLines {
+            dir: outline.travelDir
+            amount: outline.animates && prefs.panelSpeedLines ? root.speedAmount(outline.travelT) : 0
+            traveled: outline.travelDir > 0 ? Math.max(0, outline.x - outline.fromLeft)
+                                            : Math.max(0, outline.fromRight - (outline.x + outline.width))
+          }
+        }
+
+        // A window moved to another workspace while the panel is open, sliding
+        // from its old card to its new one and braking hard, with a splash off
+        // its leading edge. Its mini view on the new card stays hidden until then.
+        Item {
+          id: flyer
+          property Item flyTile: null
+          property rect from: Qt.rect(0, 0, 0, 0)
+          property rect to: Qt.rect(0, 0, 0, 0)
+          property real flightT: 1
+          // Fast away, then a hard stop.
+          function ease(t) { return 1 - Math.pow(1 - t, 4) }
+
+          z: 6
+          visible: !!flyTile && flightT < 1
+          readonly property int flyDir: to.x >= from.x ? 1 : -1
+          x: from.x + (to.x - from.x) * ease(flightT)
+          y: from.y + (to.y - from.y) * ease(flightT)
+          width: from.width + (to.width - from.width) * flightT
+          height: from.height + (to.height - from.height) * flightT
+
+          function fly(next, start) {
+            if (!next) return
+            land()
+            var at = next.mapToItem(band, 0, 0)
+            flyTile = next
+            from = start
+            to = Qt.rect(at.x, at.y, next.width, next.height)
+            root.clearImpacts()
+            flightT = 0
+            flight.restart()
+          }
+
+          function land() {
+            if (!flyTile) return
+            flight.stop()
+            var landed = to
+            var dir = to.x >= from.x ? 1 : -1
+            var onto = flyTile.wsId
+            flyTile = null
+            flightT = 1
+            if (prefs.panelImpacts) root.splashFor(onto).impactLines(dir > 0 ? landed.x + landed.width : landed.x, landed.y, landed.y + landed.height, dir, root.impactThickness, 0.85, root.impactDelay)
+          }
+
+          SpeedLines {
+            dir: flyer.flyDir
+            amount: prefs.panelSpeedLines ? root.speedAmount(flyer.flightT) : 0
+            traveled: flyer.flyDir > 0 ? Math.max(0, flyer.x - flyer.from.x)
+                                       : Math.max(0, flyer.from.x + flyer.from.width - (flyer.x + flyer.width))
+          }
+
+          ShaderEffectSource {
+            anchors.fill: parent
+            sourceItem: flyer.flyTile
+            hideSource: true
+            live: true
+          }
+
+          Rectangle {
+            anchors.fill: parent
+            color: "transparent"
+            radius: Math.min(Style.cornerRadius, height / 2)
+            border.width: 1
+            // Blue going to the workspace being shown, grey to any other.
+            border.color: flyer.flyTile && flyer.flyTile.wsId !== root.activeId ? root.quietSplashColor : Commons.Color.accent
+          }
+
+          NumberAnimation {
+            id: flight
+            target: flyer
+            property: "flightT"
+            from: 0
+            to: 1
+            duration: 380
+            onFinished: flyer.land()
+          }
+        }
+
+        // Splashes over the cards: where a dragged window is dropped, and where
+        // a flying one lands. The same droplets as the bar's line.
+        WorkspaceLine {
+          id: panelSplash
+          z: 7
+          color: Commons.Color.accent
+          animated: prefs.panelAnimation && !Style.reduceMotion && root.shown
+          // Each of the panel's effects has its own setting, checked where it starts.
+          splash: true
+          thickness: Math.max(4, Math.round(Style.space(6)))
+          pad: 40
+        }
+
+        // The same, in grey, for a window landing on a workspace that isn't
+        // the one being shown.
+        WorkspaceLine {
+          id: quietSplash
+          z: 7
+          color: root.quietSplashColor
+          animated: panelSplash.animated
+          splash: panelSplash.splash
+          thickness: panelSplash.thickness
+          pad: panelSplash.pad
         }
       }
 
@@ -1350,11 +1922,93 @@ Item {
         readonly property int edge: Style.spacing.md
         readonly property int iconSize: Math.round(Style.font.body * 1.5)
 
-        visible: root.opened && root.popup === "" && !root.reorderLabel && (!root.dragTile || !!root.dragTile.listRow) && root.listWindows.length > 0
-        width: Math.min(root.sw * 0.4, rows.implicitWidth + edge)
-        height: rows.implicitHeight + edge
-        x: Math.max(edge, Math.min(root.sw - width - edge, cardCenter - width / 2))
+        readonly property bool wanted: root.opened && root.popup === "" && !root.reorderLabel && (!root.dragTile || !!root.dragTile.listRow) && root.listWindows.length > 0
+        readonly property bool animates: !Style.reduceMotion
+
+        // Where it rests: centered over its workspace's card, as wide as its rows.
+        readonly property real restWidth: Math.min(root.sw * 0.4, rows.implicitWidth + edge)
+        readonly property real restLeft: Math.max(edge, Math.min(root.sw - restWidth - edge, cardCenter - restWidth / 2))
+
+        // Rising out of the band as it appears, and sinking back as it goes.
+        property real shownAmount: wanted ? 1 : 0
+        Behavior on shownAmount {
+          NumberAnimation { duration: Style.duration(windowList.wanted ? 200 : 140); easing.type: Easing.OutCubic }
+        }
+        // As tall as its rows, kept while it sinks away with none left to show.
+        property real fullHeight: rows.implicitHeight + edge
+        Behavior on fullHeight {
+          enabled: windowList.shownAmount > 0.99
+          NumberAnimation { duration: Style.duration(160); easing.type: Easing.OutCubic }
+        }
+        Connections {
+          target: rows
+          function onImplicitHeightChanged() { if (root.listWindows.length > 0) windowList.fullHeight = rows.implicitHeight + windowList.edge }
+        }
+
+        // Going to another card it stretches across the way the bar's line
+        // does: the leading edge runs ahead, the trailing edge follows, and
+        // neither goes past where it ends up. The ends are set only in place().
+        property real fromLeft: restLeft
+        property real fromRight: restLeft + restWidth
+        property real toLeft: restLeft
+        property real toRight: restLeft + restWidth
+        property real travelT: 1
+        property int travelDir: 1
+        // False for a change of width on the same card: both edges ease together.
+        property bool leading: true
+        property int lastList: -1
+
+        function clamp01(t) { return Math.max(0, Math.min(1, t)) }
+        function outCubic(t) { t = clamp01(t); return 1 - Math.pow(1 - t, 3) }
+        function inOutCubic(t) { t = clamp01(t); return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2 }
+        readonly property real leadEdge: travelDir > 0
+          ? fromRight + (toRight - fromRight) * outCubic(travelT)
+          : fromLeft + (toLeft - fromLeft) * outCubic(travelT)
+        readonly property real trailEdge: travelDir > 0
+          ? fromLeft + (toLeft - fromLeft) * (leading ? inOutCubic(travelT) : outCubic(travelT))
+          : fromRight + (toRight - fromRight) * (leading ? inOutCubic(travelT) : outCubic(travelT))
+
+        function place() {
+          var nowLeft = x
+          var nowRight = x + width
+          var moved = lastList > 0 && root.listId > 0 && root.listId !== lastList
+          var steps = Math.max(1, Math.abs(root.workspaceIds.indexOf(root.listId) - root.workspaceIds.indexOf(lastList)))
+          if (root.listId > 0) lastList = root.listId
+          var right = restLeft + restWidth
+          listSlide.stop()
+          // Appearing, or nothing to animate: straight to its place.
+          if (!animates || shownAmount < 0.05 || (Math.abs(nowLeft - restLeft) < 0.5 && Math.abs(nowRight - right) < 0.5)) {
+            fromLeft = restLeft
+            fromRight = right
+            toLeft = restLeft
+            toRight = right
+            travelT = 1
+            return
+          }
+          leading = moved
+          travelDir = restLeft + restWidth / 2 >= (nowLeft + nowRight) / 2 ? 1 : -1
+          fromLeft = nowLeft
+          fromRight = nowRight
+          toLeft = restLeft
+          toRight = right
+          travelT = 0
+          listSlide.duration = Style.duration(moved ? 280 * (1 + 0.1 * (steps - 1)) : 160)
+          listSlide.start()
+        }
+
+        onRestLeftChanged: Qt.callLater(place)
+        onRestWidthChanged: Qt.callLater(place)
+        onWantedChanged: if (wanted) place()
+
+        NumberAnimation { id: listSlide; target: windowList; property: "travelT"; from: 0; to: 1 }
+
+        visible: shownAmount > 0.001
+        x: travelDir > 0 ? trailEdge : leadEdge
+        width: Math.abs(leadEdge - trailEdge)
+        height: fullHeight * shownAmount
         y: band.y - height
+        opacity: Math.min(1, shownAmount * 1.6)
+        clip: true
         color: workspaceApps.cardBackground(root.shell ? root.shell.barConfig : null)
         topLeftRadius: Style.cornerRadius
         topRightRadius: Style.cornerRadius
@@ -1364,10 +2018,15 @@ Item {
         // Keeps a click between two rows from closing the panel.
         MouseArea { anchors.fill: parent }
 
+        // Pinned to the bottom at its resting width, so it is uncovered from the
+        // band up as the list rises, and stays centered while the list stretches.
         ColumnLayout {
           id: rows
-          anchors.fill: parent
-          anchors.margins: windowList.edge / 2
+          anchors.bottom: parent.bottom
+          anchors.bottomMargin: windowList.edge / 2
+          anchors.horizontalCenter: parent.horizontalCenter
+          width: windowList.restWidth - windowList.edge
+          height: implicitHeight
           spacing: 0
 
           Repeater {
@@ -1385,6 +2044,11 @@ Item {
               property real grabX: 0
 
               Component.onDestruction: if (root.dragTile === row) root.dragTile = null
+
+              // Fades in as it joins the list.
+              opacity: 0
+              Component.onCompleted: rowFade.start()
+              NumberAnimation { id: rowFade; target: row; property: "opacity"; to: 1; duration: Style.duration(100); easing.type: Easing.OutCubic }
 
               Layout.fillWidth: true
               implicitWidth: title.implicitWidth + windowList.iconSize * 2 + windowList.edge * 4
@@ -1510,10 +2174,97 @@ Item {
         hideSource: true
         width: root.dragTile ? root.dragTile.width : 0
         height: root.dragTile ? root.dragTile.height : 0
-        // A wide list row keeps hold of the spot it was picked up by.
-        x: root.dragPos.x - (root.dragTile && root.dragTile.listRow ? root.dragTile.grabX : width / 2)
-        y: root.dragPos.y - height / 2
+        // It keeps hold of the spot it was picked up by: a list row along its
+        // width, a mini view wherever it was grabbed.
+        x: root.dragPos.x - held.x
+        y: root.dragPos.y - held.y
         opacity: 0.9
+        readonly property point held: root.dragTile && root.dragTile.listRow ? Qt.point(root.dragTile.grabX, height / 2) : root.dragGrab
+        // Smaller while it is carried, shrunk toward the spot it is held by.
+        transform: Scale {
+          origin.x: dragGhost.held.x
+          origin.y: dragGhost.held.y
+          xScale: root.dragScale
+          yScale: root.dragScale
+        }
+        id: dragGhost
+      }
+
+      // A window dropped on another workspace's card. It grows back to full
+      // size as it settles into the spot its window goes to, then splashes off
+      // its outline as it lands, and fades as its mini view takes its place.
+      Item {
+        id: landing
+        property var landedShot: null
+        // From where the carried copy is, at its carried size, to where its
+        // window's mini view will be, at full size.
+        property rect fromRect: Qt.rect(0, 0, 0, 0)
+        property rect toRect: Qt.rect(0, 0, 0, 0)
+        property real settleT: 1
+        property bool active: false
+        // The workspace it is landing on: blue on the one being shown, grey on another.
+        property int ontoId: -1
+        readonly property color tint: ontoId === root.activeId ? Commons.Color.accent : root.quietSplashColor
+        function ease(t) { return 1 - Math.pow(1 - t, 3) }
+
+        visible: active
+        x: fromRect.x + (toRect.x - fromRect.x) * ease(settleT)
+        y: fromRect.y + (toRect.y - fromRect.y) * ease(settleT)
+        width: fromRect.width + (toRect.width - fromRect.width) * ease(settleT)
+        height: fromRect.height + (toRect.height - fromRect.height) * ease(settleT)
+
+        // A row turning into a mini view cross-fades into this picture of it.
+        property var thumbShot: null
+        readonly property bool morphs: !!thumbShot
+
+        function land(picture, start, end, onto, thumb) {
+          landingRun.stop()
+          ontoId = onto
+          landedShot = picture
+          thumbShot = thumb || null
+          settleRun.duration = Style.duration(thumbShot ? 240 : 150)
+          fromRect = start
+          toRect = end
+          settleT = 0
+          opacity = 0.9
+          active = true
+          landingRun.start()
+        }
+
+        function splash() {
+          if (prefs.panelDropSplash) root.splashFor(ontoId).splashRect(Qt.rect(toRect.x - band.x, toRect.y - band.y, toRect.width, toRect.height), 1)
+        }
+
+        Image {
+          anchors.fill: parent
+          source: landing.landedShot ? landing.landedShot.url : ""
+          smooth: true
+          opacity: landing.morphs ? 1 - landing.ease(Math.min(1, landing.settleT * 1.4)) : 1
+        }
+
+        Image {
+          anchors.fill: parent
+          visible: landing.morphs
+          source: landing.thumbShot ? landing.thumbShot.url : ""
+          smooth: true
+          opacity: landing.ease(Math.min(1, landing.settleT * 1.4))
+        }
+
+        Rectangle {
+          anchors.fill: parent
+          color: "transparent"
+          radius: Math.min(Style.cornerRadius, height / 2)
+          border.width: 1
+          border.color: landing.tint
+        }
+
+        SequentialAnimation {
+          id: landingRun
+          NumberAnimation { id: settleRun; target: landing; property: "settleT"; from: 0; to: 1; duration: Style.duration(150) }
+          ScriptAction { script: landing.splash() }
+          NumberAnimation { target: landing; property: "opacity"; to: 0; duration: Style.duration(160); easing.type: Easing.OutCubic }
+          ScriptAction { script: { landing.active = false; landing.landedShot = null; landing.thumbShot = null } }
+        }
       }
     }
   }

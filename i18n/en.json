@@ -30,5 +30,15 @@
   "settings.section.bar": "Bar",
   "settings.section.shortcuts": "Shortcuts",
   "settings.count.bar": "Shown on the bar",
-  "settings.count.panel": "Shown in the panel"
+  "settings.count.panel": "Shown in the panel",
+  "settings.section.line": "Workspace Line",
+  "settings.linePosition": "Line",
+  "settings.linePosition.under": "Under",
+  "settings.linePosition.over": "Over",
+  "settings.lineSplash": "Splash on landing",
+  "settings.lineAnimation": "Animate the line",
+  "settings.panelAnimation": "Animate the panel outline",
+  "settings.panelSpeedLines": "Speed lines in the panel",
+  "settings.panelImpacts": "Impact lines in the panel",
+  "settings.panelDropSplash": "Splash when a window is dropped"
 }

@@ -113,6 +113,7 @@ BarWidget {
     }
     menuOpen = false
     peekEntry = entry
+    if (peekId !== entry.modelData) console.log("DBGDRAG peekId", peekId, "->", entry.modelData, "drag", !!peekDragItem)
     peekId = entry.modelData
     peekOpen = true
     Qt.callLater(placePeek)
@@ -412,6 +413,7 @@ BarWidget {
   }
 
   function hidePeek() {
+    console.log("DBGDRAG hidePeek drag", !!peekDragItem, new Error().stack)
     peekTimer.stop()
     peekOpen = false
   }
@@ -447,11 +449,24 @@ BarWidget {
     if (peekDragItem) {
       peekShrink.stop()
       peekDragScale = 1
-      peekShrink.to = peekDragItem.dragScale
-      peekShrink.start()
+      followPeekScale()
     }
     followPointer()
     followMenu()
+  }
+
+  // A thumbnail carried over its own preview keeps its size, as the real
+  // window moves with it. Off the preview it shrinks to its dragging size.
+  readonly property bool peekOverPreview: !!peekDragItem && dragSource === peekContent.item && !!peekContent.item && peekContent.item.overPreview
+  onPeekOverPreviewChanged: followPeekScale()
+  function followPeekScale() {
+    if (!peekDragItem) return
+    var to = peekOverPreview ? 1 : peekDragItem.dragScale
+    if (peekShrink.to === to && (peekShrink.running || peekDragScale === to)) return
+    peekShrink.stop()
+    peekShrink.from = peekDragScale
+    peekShrink.to = to
+    peekShrink.start()
   }
 
   // Closing the last window from the card leaves it nothing to show.
@@ -593,7 +608,11 @@ BarWidget {
             var target = root.dropTargetId
             root.dropTargetId = -1
             root.droppedAt = Date.now()
-            if (target > 0 && target !== fromId) workspaceApps.moveWindow(toplevel, target)
+            if (target > 0 && target !== fromId) {
+              dropMoves = true
+              workspaceApps.moveWindow(toplevel, target)
+              root.dripOn(target)
+            }
           }
           onDragCanceled: root.dropTargetId = -1
         }
@@ -606,6 +625,7 @@ BarWidget {
       position: root.peekDragPos
       grab: peekContent.item ? peekContent.item.grabPoint : Qt.point(0, 0)
       itemScale: root.peekDragScale
+      bounds: root.peekOverPreview ? peekContent.item.previewArea : Qt.rect(0, 0, 0, 0)
     }
   }
 
@@ -693,7 +713,10 @@ BarWidget {
             var target = root.dropTargetId
             root.dropTargetId = -1
             root.droppedAt = Date.now()
-            if (target > 0) workspaceApps.moveWindow(toplevel, target)
+            if (target > 0) {
+              workspaceApps.moveWindow(toplevel, target)
+              root.dripOn(target)
+            }
           }
           onDragCanceled: root.dropTargetId = -1
         }
@@ -878,12 +901,179 @@ BarWidget {
     target: Hyprland
     function onRawEvent(event) {
       var name = event ? String(event.name) : ""
+      if (name === "openwindow" || name === "closewindow" || name === "movewindowv2") root.noteWindowEvent(name, String(event.data))
       var switched = name === "workspacev2" && root.monitor !== null && root.monitor.focused
       if (switched || name === "moveworkspacev2" || name === "changeworkspaceid") {
         Hyprland.refreshMonitors()
         Hyprland.refreshWorkspaces()
       }
     }
+  }
+
+  // The current workspace's line: a rounded pill, its gap from the bar's edge,
+  // and the one drawing of it that moves along the row.
+  readonly property real lineThickness: Math.max(3, Math.round(Style.space(4)))
+  readonly property real lineEdge: Style.space(3)
+  // Underline or overline, each 2px nearer its edge of the bar.
+  readonly property real underlineEdge: Math.max(0, lineEdge - 2)
+  readonly property real overlineEdge: Math.max(0, lineEdge - 2)
+  // The grey of every workspace but the current one: a lighter grey for the
+  // number of one with windows, and a darker one for its line.
+  readonly property color inactiveColor: Qt.alpha(root.barForeground, 0.4)
+  readonly property color occupiedColor: Qt.alpha(root.barForeground, 0.75)
+  readonly property color occupiedLineColor: Qt.alpha(root.barForeground, 0.45)
+
+  function lineOn(entry) {
+    line.targetIndex = workspaceIds.indexOf(entry.modelData)
+    line.target = entry.lineRect
+    line.targetKey = entry.modelData
+  }
+
+  function entryById(id) {
+    for (var i = 0; i < entries.count; i++) {
+      var entry = entries.itemAt(i)
+      if (entry && entry.modelData === id) return entry
+    }
+    return null
+  }
+
+  // A window dropped on a workspace drips into it: in the accent on the
+  // current workspace, and in grey on any other.
+  function dripOn(id) {
+    var entry = entryById(id)
+    if (!entry) return
+    if (entry.shown) line.drip(entry.lineRect, true)
+    else greyDrops.drip(entry.lineRect, false)
+  }
+
+  // Minimizing a window throws a drop of the line into the ... button.
+  readonly property int minimizedCount: minimizedWindows.length
+  property int minimizedSeen: -1
+  onMinimizedCountChanged: {
+    if (minimizedSeen >= 0 && minimizedCount > minimizedSeen && moreButton.visible)
+      line.fling(Qt.rect(row.x + moreButton.x + moreLine.x, row.y + moreButton.y + moreLine.y, moreLine.width, moreLine.height))
+    if (minimizedSeen >= 0) minimizedSeen = minimizedCount
+  }
+  // Not for the windows that were already minimized when the bar started.
+  Timer {
+    running: true
+    interval: 1500
+    onTriggered: root.minimizedSeen = root.minimizedCount
+  }
+
+  // Which workspace each window is on, kept from Hyprland's own events so a
+  // move can be told where it came from.
+  property var windowWorkspaces: ({})
+  Component.onCompleted: {
+    var known = {}
+    var values = Hyprland.toplevels.values
+    for (var i = 0; i < values.length; i++) {
+      var address = workspaceApps.windowAddress(values[i])
+      if (address !== "" && values[i].workspace) known[address] = values[i].workspace.id
+    }
+    windowWorkspaces = known
+  }
+
+  function noteWindowEvent(name, data) {
+    var fields = data.split(",")
+    var address = workspaceApps.windowAddress({ address: fields[0] })
+    if (address === "") return
+    if (name === "closewindow") {
+      delete windowWorkspaces[address]
+    } else if (name === "openwindow") {
+      var opened = parseInt(fields[1], 10)
+      if (!isNaN(opened)) windowWorkspaces[address] = opened
+    } else {
+      var to = parseInt(fields[1], 10)
+      var from = windowWorkspaces[address]
+      if (isNaN(to)) return
+      windowWorkspaces[address] = to
+      if (from !== undefined && from !== to) {
+        greyFrom = from
+        greyTo = to
+        // Held from the start, or its line shows before the moving one sets off.
+        greyHeldId = to
+        greyWait.restart()
+      }
+    }
+  }
+
+  // A window moved to another workspace sends a grey line from the one it
+  // left to the one it went to, moving the way the current workspace's line
+  // does, and that workspace's own grey line waits for it to land. Not when
+  // the move takes the current workspace along: its line already goes there.
+  property int greyFrom: -1
+  property int greyTo: -1
+  property int greyHeldId: -1
+  Timer {
+    id: greyWait
+    // Long enough for a switch that comes with the move to arrive first.
+    interval: 60
+    onTriggered: root.sendGreyLine(root.greyFrom, root.greyTo)
+  }
+
+  function sendGreyLine(fromId, toId) {
+    var from = entryById(fromId)
+    var to = entryById(toId)
+    if (!prefs.lineAnimation || Style.reduceMotion || toId === activeId || !from || !to) {
+      greyHeldId = -1
+      return
+    }
+    greyLine.jumpTo(from.lineRect, fromId, workspaceIds.indexOf(fromId))
+    greyHeldId = toId
+    greyLine.visible = true
+    greyLine.targetIndex = workspaceIds.indexOf(toId)
+    greyLine.target = to.lineRect
+    greyLine.targetKey = toId
+    greyDone.restart()
+  }
+
+  Timer {
+    id: greyDone
+    // The move, and its splash, then the workspace's own grey line takes over.
+    interval: 750
+    onTriggered: {
+      greyLine.visible = false
+      root.greyHeldId = -1
+    }
+  }
+
+  // Drips onto workspaces other than the current one. It has no line of its own.
+  WorkspaceLine {
+    id: greyDrops
+    z: 4
+    color: root.occupiedLineColor
+    animated: prefs.lineAnimation && !Style.reduceMotion
+    splash: prefs.lineSplash
+    vertical: root.vertical
+    inward: line.inward
+    thickness: root.lineThickness
+    dropHeight: line.dropHeight
+  }
+
+  WorkspaceLine {
+    id: greyLine
+    z: 4
+    visible: false
+    color: root.occupiedLineColor
+    animated: prefs.lineAnimation && !Style.reduceMotion
+    splash: prefs.lineSplash
+    vertical: root.vertical
+    inward: line.inward
+    thickness: root.lineThickness
+    dropHeight: line.dropHeight
+  }
+
+  WorkspaceLine {
+    id: line
+    z: 5
+    color: Commons.Color.accent
+    animated: prefs.lineAnimation && !Style.reduceMotion
+    splash: prefs.lineSplash
+    vertical: root.vertical
+    inward: root.vertical ? 1 : (prefs.overline ? 1 : -1)
+    thickness: root.lineThickness
+    dropHeight: root.vertical ? 0 : Math.round(root.barSize * 0.2)
   }
 
   // Room before the button for a divider like the ones between workspaces. Half
@@ -981,6 +1171,14 @@ BarWidget {
         readonly property bool shown: modelData === root.activeId
         readonly property int slot: root.slotOf(modelData)
         readonly property var apps: prefs.barIcons ? workspaceApps.appsIn(workspace ? workspace.toplevels.values : []) : []
+        // Where this workspace's line sits, in the widget's coordinates.
+        readonly property rect lineRect: Qt.rect(row.x + entry.x + number.x + entryLine.x,
+                                                 row.y + entry.y + number.y + entryLine.y,
+                                                 entryLine.width, entryLine.height)
+
+        onShownChanged: if (shown) root.lineOn(entry)
+        onLineRectChanged: if (shown) root.lineOn(entry)
+        Component.onCompleted: if (shown) root.lineOn(entry)
 
         columns: root.vertical ? 1 : 2
         opacity: root.reorderEntry === entry ? 0.35 : 1
@@ -991,7 +1189,9 @@ BarWidget {
           id: number
           bar: root.bar
           text: entry.slot === root.slots ? "0" : String(entry.slot)
-          foreground: entry.occupied || entry.shown ? root.barForeground : Qt.alpha(root.barForeground, 0.5)
+          // The accent on the current workspace, and every other number the
+          // same grey as its line.
+          foreground: entry.shown ? Commons.Color.accent : entry.occupied ? root.occupiedColor : root.inactiveColor
           horizontalMargin: 6
           verticalPadding: 6
           fixedWidth: root.vertical ? root.barSize : Style.space(20)
@@ -1021,18 +1221,49 @@ BarWidget {
             color: Qt.alpha(root.barForeground, 0.3)
           }
 
-          // Accent on the current workspace, grey on others with apps. It runs
-          // past this button to the end of the icons beside it.
+          // Grey on a workspace with apps, as a rounded pill that runs past this
+          // button to the end of the icons beside it. It stays when the
+          // workspace is current: the accent line over the whole row is drawn
+          // on top of it, and it shows again the moment the line leaves.
           Rectangle {
+            id: entryLine
             readonly property int numberWidth: Style.space(10)
-            visible: entry.shown || entry.occupied
+            // Held back while a grey line is on its way here from another workspace.
+            readonly property bool shows: entry.occupied && root.greyHeldId !== entry.modelData
             x: (parent.width - numberWidth) / 2
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: Style.space(3)
+            y: prefs.overline ? root.overlineEdge : parent.height - height - root.underlineEdge
             width: !root.vertical && entry.apps.length > 0 ? parent.width + icons.implicitWidth - x : numberWidth
-            height: Math.max(1, Style.space(2))
-            radius: height / 2
-            color: entry.shown ? Commons.Color.accent : Qt.alpha(number.foreground, 0.4)
+            height: root.lineThickness
+            color: "transparent"
+
+            // Behind the current workspace's line: the part it covers is left
+            // out, so none of this shows past its edges while it stretches thin.
+            // What is left is a piece before it and a piece after it.
+            readonly property real start: root.vertical ? entry.lineRect.y : entry.lineRect.x
+            readonly property real length: root.vertical ? height : width
+            readonly property real coverFrom: line.coverFrom - start
+            readonly property real coverTo: line.coverTo - start
+            readonly property real beforeEnd: Math.max(0, Math.min(length, coverFrom))
+            readonly property real afterStart: Math.min(length, Math.max(0, coverTo))
+            readonly property bool covered: coverTo > 0 && coverFrom < length
+
+            Repeater {
+              model: 2
+
+              Rectangle {
+                required property int index
+                readonly property real from: !entryLine.covered ? 0 : index === 0 ? 0 : entryLine.afterStart
+                readonly property real to: !entryLine.covered ? (index === 0 ? entryLine.length : 0)
+                                           : index === 0 ? entryLine.beforeEnd : entryLine.length
+                visible: entryLine.shows && to - from > 0.5
+                x: root.vertical ? 0 : from
+                y: root.vertical ? from : 0
+                width: root.vertical ? entryLine.width : to - from
+                height: root.vertical ? to - from : entryLine.height
+                radius: Math.min(width, height) / 2
+                color: root.occupiedLineColor
+              }
+            }
           }
         }
 
@@ -1093,6 +1324,15 @@ BarWidget {
       HoverHandler {
         id: moreHover
         onHoveredChanged: root.followMenu()
+      }
+
+      // Where a minimized window's drop lands, in line with the workspaces'.
+      Item {
+        id: moreLine
+        width: Style.space(10)
+        height: root.lineThickness
+        x: (parent.width - width) / 2
+        y: prefs.overline ? root.overlineEdge : parent.height - height - root.underlineEdge
       }
 
       // Drawn, because text dots sit on the baseline, below the numbers' middle.

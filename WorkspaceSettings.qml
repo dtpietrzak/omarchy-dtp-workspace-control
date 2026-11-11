@@ -24,6 +24,19 @@ Scope {
   readonly property bool examine: flag("examine")
   readonly property string examineKeys: chord("examineKeys")
 
+  // The current workspace's line: under the numbers or over them, whether it
+  // moves to the next workspace or jumps, and whether it splashes on landing.
+  readonly property bool overline: values.linePosition === "over"
+  readonly property bool lineAnimation: flag("lineAnimation")
+  readonly property bool lineSplash: flag("lineSplash")
+  // The outline on the current workspace in the panel, stretching to the next.
+  readonly property bool panelAnimation: flag("panelAnimation")
+  // The panel's effects, each on its own: speed lines behind whatever slides
+  // along the row, impact lines as it stops, and a splash off a dropped window.
+  readonly property bool panelSpeedLines: flag("panelSpeedLines")
+  readonly property bool panelImpacts: flag("panelImpacts")
+  readonly property bool panelDropSplash: flag("panelDropSplash")
+
   function chord(key) {
     var value = values[key] === undefined || values[key] === null ? "" : String(values[key])
     var normal = Chord.normalize(value)

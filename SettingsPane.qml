@@ -179,6 +179,9 @@ Item {
   component SettingRow: Item {
     id: settingRow
     property string label: ""
+    // Faded when the setting has nothing to do under the others.
+    property bool muted: false
+    opacity: muted ? 0.45 : 1
     default property alias control: slot.data
     width: parent ? parent.width : 0
     height: root.rowHeight
@@ -319,6 +322,51 @@ Item {
     }
   }
 
+  // One of a few choices, side by side, with the chosen one filled.
+  component Choice: Row {
+    id: choice
+    property var options: []
+    property string value: ""
+    signal picked(string value)
+
+    spacing: Style.space(2)
+
+    Repeater {
+      model: choice.options
+
+      Rectangle {
+        id: option
+        required property var modelData
+        readonly property bool chosen: modelData.value === choice.value
+        width: optionText.implicitWidth + Style.space(12)
+        height: Style.space(24)
+        radius: Style.cornerRadius
+        color: chosen ? Style.selectedAccentFill
+          : optionMouse.containsMouse ? Style.hoverFill : Qt.alpha(Commons.Color.foreground, 0.06)
+        border.width: chosen || optionMouse.containsMouse ? 1 : 0
+        border.color: Commons.Color.accent
+
+        Text {
+          id: optionText
+          anchors.centerIn: parent
+          textFormat: Text.PlainText
+          text: option.modelData.label
+          color: Commons.Color.foreground
+          font.family: Style.font.family
+          font.pixelSize: Style.font.bodySmall
+        }
+
+        MouseArea {
+          id: optionMouse
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: if (!option.chosen) choice.picked(option.modelData.value)
+        }
+      }
+    }
+  }
+
   Column {
     id: column
     x: Style.spacing.sm
@@ -399,6 +447,66 @@ Item {
         ToggleSwitch {
           checked: root.settings.minimizedButton
           onToggled: root.settings.set("minimizedButton", !root.settings.minimizedButton)
+        }
+      }
+    }
+
+    SectionTitle { text: strings.t("settings.section.line") }
+
+    Group {
+      SettingRow {
+        label: strings.t("settings.linePosition")
+        Choice {
+          value: root.settings.overline ? "over" : "under"
+          options: [
+            { value: "under", label: strings.t("settings.linePosition.under") },
+            { value: "over", label: strings.t("settings.linePosition.over") }
+          ]
+          onPicked: function(value) { root.settings.set("linePosition", value) }
+        }
+      }
+
+      SettingRow {
+        label: strings.t("settings.lineAnimation")
+        ToggleSwitch {
+          checked: root.settings.lineAnimation
+          onToggled: root.settings.set("lineAnimation", !root.settings.lineAnimation)
+        }
+      }
+
+      SettingRow {
+        label: strings.t("settings.lineSplash")
+        muted: !root.settings.lineAnimation
+        ToggleSwitch {
+          checked: root.settings.lineSplash
+          onToggled: root.settings.set("lineSplash", !root.settings.lineSplash)
+        }
+      }
+
+      SettingRow {
+        label: strings.t("settings.panelAnimation")
+        ToggleSwitch {
+          checked: root.settings.panelAnimation
+          onToggled: root.settings.set("panelAnimation", !root.settings.panelAnimation)
+        }
+      }
+
+      Repeater {
+        // Each needs the panel outline animated.
+        model: [
+          { key: "panelSpeedLines", label: "settings.panelSpeedLines" },
+          { key: "panelImpacts", label: "settings.panelImpacts" },
+          { key: "panelDropSplash", label: "settings.panelDropSplash" }
+        ]
+
+        SettingRow {
+          required property var modelData
+          label: strings.t(modelData.label)
+          muted: !root.settings.panelAnimation
+          ToggleSwitch {
+            checked: root.settings[modelData.key]
+            onToggled: root.settings.set(modelData.key, !root.settings[modelData.key])
+          }
         }
       }
     }

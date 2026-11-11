@@ -37,7 +37,16 @@ Item {
     var dx = mouse.x - pressPoint.x
     var dy = mouse.y - pressPoint.y
     if (dragItem !== item && dx * dx + dy * dy < 36) return
-    if (dragItem !== item) grabPoint = pressPoint
+    if (dragItem !== item) console.log("DBGDRAG start ws", workspaceId, "row", item.client === undefined)
+    if (dragItem !== item) {
+      grabPoint = pressPoint
+      // A row picked up takes its window off the screen, and its thumbnail out
+      // of the preview, until it is put down.
+      if (item.client === undefined) rowHider.hide(workspaceApps.windowAddress(item.modelData))
+    }
+    // Before the drag is taken up, so a thumbnail picked up over the preview
+    // never starts to shrink.
+    carry(area, item, mouse)
     dragItem = item
     var point = area.mapToItem(dragSpace, mouse.x, mouse.y)
     dragMoved(point.x, point.y)
@@ -45,19 +54,95 @@ Item {
 
   // True when this release ended a drag rather than being a click.
   function endDrag(item) {
+    console.log("DBGDRAG end ws", workspaceId, "mine", dragItem === item)
     if (dragItem !== item) return false
+    settleCarried(item)
+    dropMoves = false
     dragDropped(item.modelData, workspaceId)
     dragItem = null
+    overPreview = false
+    // Sent to another workspace, it stays hidden until it is there.
+    if (dropMoves) rowHider.showAfterMove()
+    else rowHider.show()
+    dropMoves = false
     return true
   }
 
   function cancelDrag(item) {
+    if (dragItem === item) console.log("DBGDRAG cancel ws", workspaceId, new Error().stack)
     if (dragItem !== item) return
+    settleCarried(item)
     dragCanceled()
     dragItem = null
+    overPreview = false
+    rowHider.show()
+  }
+
+  // Over the preview, a floating window's real window goes where its thumbnail
+  // is carried, the same spot on the screen as the thumbnail's spot in the
+  // preview, and the thumbnail keeps its size. Off the preview it shrinks and
+  // the window waits where it is, for a drop on a workspace to send it there.
+  property bool overPreview: false
+  // The preview, in the coordinates drags report in, which a thumbnail carried
+  // over it is kept inside, as its window is kept on the screen.
+  property rect previewArea: Qt.rect(0, 0, 0, 0)
+  property var carried: null
+  property var lastCarried: null
+
+  function carry(area, item, mouse) {
+    var client = item.client
+    var inPreview = area.mapToItem(preview, mouse.x, mouse.y)
+    var inside = inPreview.x >= 0 && inPreview.y >= 0 && inPreview.x <= preview.width && inPreview.y <= preview.height
+    overPreview = inside && !!client && !!client.floating && !!monitor && preview.ratio > 0
+    if (!overPreview) return
+    var corner = preview.mapToItem(dragSpace, 0, 0)
+    previewArea = Qt.rect(corner.x, corner.y, preview.width, preview.height)
+    var width = client.size[0], height = client.size[1]
+    carried = {
+      address: workspaceApps.windowAddress(item.modelData),
+      x: Math.round(monitor.x + Math.max(0, Math.min(screenWidth - width, (inPreview.x - grabPoint.x) / preview.ratio))),
+      y: Math.round(monitor.y + Math.max(0, Math.min(screenHeight - height, (inPreview.y - grabPoint.y) / preview.ratio)))
+    }
+    if (!carryTimer.running) carryTimer.start()
+  }
+
+  function sendCarried() {
+    var move = carried
+    carried = null
+    if (!move || move.address === "") return
+    lastCarried = move
+    Hyprland.dispatch('hl.dsp.window.move({ x = ' + move.x + ', y = ' + move.y + ', window = "address:' + move.address + '" })')
+  }
+
+  // The last spot goes out at once, the thumbnail shows it until Hyprland
+  // says the window is there, and the windows are read again.
+  function settleCarried(item) {
+    carryTimer.stop()
+    sendCarried()
+    if (lastCarried && item.client !== undefined && lastCarried.address === workspaceApps.windowAddress(item.modelData))
+      item.movedTo = Qt.point(lastCarried.x, lastCarried.y)
+    lastCarried = null
+    rereadAfterMove.restart()
+  }
+
+  // Moves go out at most every 30ms, the latest spot each time.
+  Timer {
+    id: carryTimer
+    interval: 30
+    onTriggered: root.sendCarried()
+  }
+
+  Timer {
+    id: rereadAfterMove
+    interval: 80
+    onTriggered: root.load()
   }
 
   WorkspaceApps { id: workspaceApps }
+  WindowHider { id: rowHider }
+  // Set by whoever handles dragDropped, when the drop sends the window to
+  // another workspace.
+  property bool dropMoves: false
 
   // Address -> Hyprland's own record of the window, plus its place in the stack.
   property var clients: ({})
@@ -173,6 +258,18 @@ Item {
             readonly property bool placed: !!client && !client.hidden
             readonly property bool hasContent: shot.hasContent
             readonly property real dragScale: 0.2
+            // Where a drag just sent the real window, until Hyprland says it is
+            // there. Without it the thumbnail shows the old spot first.
+            property var movedTo: null
+            readonly property real atX: movedTo ? movedTo.x : (placed ? client.at[0] : 0)
+            readonly property real atY: movedTo ? movedTo.y : (placed ? client.at[1] : 0)
+            onClientChanged: if (movedTo && placed && Math.abs(client.at[0] - movedTo.x) < 2 && Math.abs(client.at[1] - movedTo.y) < 2) movedTo = null
+            Timer {
+              // In case Hyprland put it somewhere a little different.
+              running: !!tile.movedTo
+              interval: 1000
+              onTriggered: tile.movedTo = null
+            }
 
             onHasContentChanged: root.checkPreview()
             Component.onDestruction: {
@@ -180,9 +277,13 @@ Item {
               root.cancelDrag(tile)
             }
 
-            visible: placed
-            x: placed ? (client.at[0] - (root.monitor ? root.monitor.x : 0)) * preview.ratio : 0
-            y: placed ? (client.at[1] - (root.monitor ? root.monitor.y : 0)) * preview.ratio : 0
+            // Out of the preview while its row is being carried, and after it is
+            // dropped on another workspace, until it has gone there.
+            readonly property bool carriedAway: (!!root.dragItem && root.dragItem !== tile && root.dragItem.modelData === tile.modelData)
+              || (rowHider.address !== "" && rowHider.address === workspaceApps.windowAddress(tile.modelData))
+            visible: placed && !carriedAway
+            x: placed ? (atX - (root.monitor ? root.monitor.x : 0)) * preview.ratio : 0
+            y: placed ? (atY - (root.monitor ? root.monitor.y : 0)) * preview.ratio : 0
             width: placed ? Math.max(2, client.size[0] * preview.ratio) : 0
             height: placed ? Math.max(2, client.size[1] * preview.ratio) : 0
             z: placed ? (client.floating ? 1000 : 0) + client.stackIndex : 0
