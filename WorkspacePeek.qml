@@ -37,7 +37,6 @@ Item {
     var dx = mouse.x - pressPoint.x
     var dy = mouse.y - pressPoint.y
     if (dragItem !== item && dx * dx + dy * dy < 36) return
-    if (dragItem !== item) console.log("DBGDRAG start ws", workspaceId, "row", item.client === undefined)
     if (dragItem !== item) {
       grabPoint = pressPoint
       // A row picked up takes its window off the screen, and its thumbnail out
@@ -54,7 +53,6 @@ Item {
 
   // True when this release ended a drag rather than being a click.
   function endDrag(item) {
-    console.log("DBGDRAG end ws", workspaceId, "mine", dragItem === item)
     if (dragItem !== item) return false
     settleCarried(item)
     dropMoves = false
@@ -69,7 +67,6 @@ Item {
   }
 
   function cancelDrag(item) {
-    if (dragItem === item) console.log("DBGDRAG cancel ws", workspaceId, new Error().stack)
     if (dragItem !== item) return
     settleCarried(item)
     dragCanceled()

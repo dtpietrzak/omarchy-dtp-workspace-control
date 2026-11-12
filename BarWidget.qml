@@ -113,7 +113,6 @@ BarWidget {
     }
     menuOpen = false
     peekEntry = entry
-    if (peekId !== entry.modelData) console.log("DBGDRAG peekId", peekId, "->", entry.modelData, "drag", !!peekDragItem)
     peekId = entry.modelData
     peekOpen = true
     Qt.callLater(placePeek)
@@ -413,7 +412,6 @@ BarWidget {
   }
 
   function hidePeek() {
-    console.log("DBGDRAG hidePeek drag", !!peekDragItem, new Error().stack)
     peekTimer.stop()
     peekOpen = false
   }
