@@ -845,9 +845,9 @@ Item {
     if (card && card.wsId === dragTile.wsId && !dragTile.listRow) return null
     return cardSpotRect
   }
-  // The same spot whichever card that is, its own included: kept inside the
-  // card, as the window is kept on the screen. A row shown as its mini view
-  // sits on it.
+  // The same spot whichever card that is, its own included: exactly where
+  // the window would be, past the card's edges too when a drop may put it
+  // past the screen's. A row shown as its mini view sits on it.
   readonly property var cardSpotRect: {
     if (!dragTile || !monitor || sw <= 0) return null
     var card = dragCardAt(dragTile, dragPos.x, dragPos.y)
@@ -855,16 +855,40 @@ Item {
     var ipc = spot ? dragTile.modelData.lastIpcObject : null
     if (!spot || !ipc || !ipc.size) return null
     var ratio = root.cardW / sw
-    var width = ipc.size[0] * ratio, height = ipc.size[1] * ratio
-    var at = card.mapToItem(panel.contentItem, onCardX((spot.x - monitor.x) * ratio, width), onCardY((spot.y - monitor.y) * ratio, height))
-    return Qt.rect(at.x, at.y, width, height)
+    var at = card.mapToItem(panel.contentItem, (spot.x - monitor.x) * ratio, (spot.y - monitor.y) * ratio)
+    return Qt.rect(at.x, at.y, ipc.size[0] * ratio, ipc.size[1] * ratio)
   }
 
-  // Where a mini view is drawn on its card, from where its window is or
-  // would be: always wholly on the card. Only the window itself, and the
-  // landing box on the screen, go past the edges a drop may go past.
+  // Two things show where a carried window is going. The small picture of it
+  // under the pointer says which workspace: it is kept wholly inside that
+  // workspace's card, or on the screen when it is over the desktop. The
+  // landing box says exactly where: it goes wherever the window would,
+  // past the edges too when a drop may.
   function onCardX(x, width) { return Math.max(0, Math.min(cardW - width, x)) }
   function onCardY(y, height) { return Math.max(0, Math.min(cardH - height, y)) }
+
+  // The workspace area a carried mini view is over, in the panel's
+  // coordinates: a card, or the screen above the band. None where letting go
+  // would leave the window be.
+  readonly property var carryArea: {
+    if (!dragTile || dragTile.listRow) return null
+    var card = cardAt(dragPos.x, dragPos.y)
+    if (card) {
+      var corner = card.mapToItem(panel.contentItem, 0, 0)
+      return Qt.rect(corner.x, corner.y, card.width, card.height)
+    }
+    return overDesktop(dragPos.x, dragPos.y) ? Qt.rect(0, 0, sw, band.y) : null
+  }
+  // How far the carried mini view is moved off the pointer to stay inside it,
+  // at the size it is carried at.
+  readonly property point carryNudge: {
+    var area = carryArea
+    if (!area || !dragTile) return Qt.point(0, 0)
+    var width = dragTile.width * dragScale, height = dragTile.height * dragScale
+    var left = dragPos.x - dragGrab.x * dragScale, top = dragPos.y - dragGrab.y * dragScale
+    return Qt.point(Math.max(area.x, Math.min(area.x + area.width - width, left)) - left,
+                    Math.max(area.y, Math.min(area.y + area.height - height, top)) - top)
+  }
 
   function cardFor(id) {
     for (var i = 0; i < cards.children.length; i++) {
@@ -1717,10 +1741,8 @@ Item {
                   // Not shown on its old card after a drop sends it elsewhere,
                   // while the move is on its way.
                   visible: placed && root.leavingAddress !== workspaceApps.windowAddress(modelData)
-                  // Drawn wholly on its card even when its window hangs off the
-                  // screen, as one dropped with drops not locked to it can.
-                  x: placed ? root.onCardX((atX - (root.monitor ? root.monitor.x : 0)) * ratio, width) : 0
-                  y: placed ? root.onCardY((atY - (root.monitor ? root.monitor.y : 0)) * ratio, height) : 0
+                  x: placed ? (atX - (root.monitor ? root.monitor.x : 0)) * ratio : 0
+                  y: placed ? (atY - (root.monitor ? root.monitor.y : 0)) * ratio : 0
                   width: placed ? Math.max(2, ipc.size[0] * ratio) : 0
                   height: placed ? Math.max(2, ipc.size[1] * ratio) : 0
                   z: (ipc.floating ? 1000 : 0) + stackIndex
@@ -2436,8 +2458,8 @@ Item {
         height: root.dragTile ? root.dragTile.height : 0
         // It keeps hold of the spot it was picked up by: a list row along its
         // width, a mini view wherever it was grabbed.
-        x: root.heldAt ? root.heldAt.x : root.dragPos.x - held.x
-        y: root.heldAt ? root.heldAt.y : root.dragPos.y - held.y
+        x: root.heldAt ? root.heldAt.x : root.dragPos.x - held.x + root.carryNudge.x
+        y: root.heldAt ? root.heldAt.y : root.dragPos.y - held.y + root.carryNudge.y
         // Still here while a row is shown as its mini view, so the row stays
         // out of the list.
         opacity: root.rowThumb ? 0 : 0.9

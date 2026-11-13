@@ -62,6 +62,7 @@ A four finger swipe up pulls up a band of workspaces with a live mini view of ea
 - Drag a window, by its mini view or its row in the list, up onto the desktop to bring it to the workspace you're on. A floating window lands where you let go, shown by an outline with the window faintly inside as you carry it.
 - Drag a floating window onto another workspace, by its mini view or its row in the list, and an outline shows where it will land there. A row can be dropped on its own workspace the same way, and turns into its window's mini view while it is over the workspace you're on.
 - A window you drop on a workspace or the desktop becomes the top window there.
+- While you carry a mini view, the small picture under the pointer stays inside the workspace it would land on, and the outline shows exactly where on it.
 - Drag a workspace's number and icons along the row to move it.
 - The gear above the first workspace opens the settings, and the ... above the last one lists minimized windows.
 - Click a workspace's number to jump to it. Number keys type into the search field.
@@ -74,7 +75,7 @@ The band follows the bar's `omarchy bar background` setting: opaque, glassy with
 Right-click any of the widget's buttons and choose Settings, or use the gear in the panel:
 
 - How many workspaces are always shown on the bar and in the panel.
-- Lock drops to screen: a window you drop is kept wholly on the screen. Turned off, it can hang off the left, right or bottom edge, with at least 50 pixels of it still showing; its top never goes above the top of the screen. A window you drag about the screen by the window itself, with the panel open, is never held wholly on it, whichever way this is set. A window's mini view is always drawn wholly on its workspace, even when the window itself hangs off the screen.
+- Lock drops to screen: a window you drop is kept wholly on the screen. Turned off, it can hang off the left, right or bottom edge, with at least 50 pixels of it still showing; its top never goes above the top of the screen. A window you drag about the screen by the window itself, with the panel open, is never held wholly on it, whichever way this is set.
 - App icons on the bar.
 - Workspace previews on hover.
 - The app list, workspace panel and minimized windows buttons. With the panel button hidden, open the panel with Super+E or the swipe; with both the app list and panel buttons hidden, reach Settings from the gear in the panel.
