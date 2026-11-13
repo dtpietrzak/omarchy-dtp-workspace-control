@@ -205,9 +205,11 @@ Item {
   property var dragShot: null
   NumberAnimation { id: dragShrink; target: root; property: "dragScale"; to: root.carryScale; duration: Style.duration(180); easing.type: Easing.OutCubic }
   function followPointer() {
-    if (dragTile && dragTile.listRow) {
-      // The row being dragged lives in the list, which has to stay.
+    if (dragTile) {
+      // The list stays as it is through a drag: on the workspace of the row
+      // being dragged, which lives in it, or of the mini view being dragged.
       listLinger.stop()
+      if (!dragTile.listRow && dragTile.wsId > 0) listId = dragTile.wsId
     } else if (pointedId > 0) {
       listLinger.stop()
       listId = pointedId
@@ -815,7 +817,10 @@ Item {
   // that floats there.
   function overDesktop(x, y) {
     if (y >= band.y) return false
-    var floats = [windowList, popupCard, appSearch]
+    // The window list is in the way of a row, which came from it and can be
+    // put back in it. A mini view or a real window is carried across it as if
+    // it were not there.
+    var floats = dragTile && !dragTile.listRow ? [popupCard, appSearch] : [windowList, popupCard, appSearch]
     for (var i = 0; i < floats.length; i++) {
       var item = floats[i]
       if (item.visible && item.contains(item.mapFromItem(panel.contentItem, x, y))) return false
@@ -2139,7 +2144,7 @@ Item {
         readonly property int edge: Style.spacing.md
         readonly property int iconSize: Math.round(Style.font.body * 1.5)
 
-        readonly property bool wanted: root.opened && root.popup === "" && !root.reorderLabel && (!root.dragTile || !!root.dragTile.listRow) && root.listWindows.length > 0
+        readonly property bool wanted: root.opened && root.popup === "" && !root.reorderLabel && root.listWindows.length > 0
         readonly property bool animates: !Style.reduceMotion
 
         // Where it rests: centered over its workspace's card, as wide as its rows.
@@ -2261,6 +2266,11 @@ Item {
               property real grabX: 0
 
               Component.onDestruction: if (root.dragTile === row) root.dragTile = null
+
+              // Out of the list once its window's mini view is carried over
+              // another workspace, which is what says the window is going.
+              visible: !(root.dragTile && !root.dragTile.listRow && root.dragTile.modelData === modelData
+                && root.hoverId > 0 && root.hoverId !== root.dragTile.wsId)
 
               // Fades in as it joins the list.
               opacity: 0
