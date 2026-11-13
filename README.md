@@ -75,7 +75,6 @@ The band follows the bar's `omarchy bar background` setting: opaque, glassy with
 Right-click any of the widget's buttons and choose Settings, or use the gear in the panel:
 
 - How many workspaces are always shown on the bar and in the panel.
-- Lock drops to screen: a window you drop is kept wholly on the screen. Turned off, it can hang off the left, right or bottom edge, with at least 50 pixels of it still showing; its top never goes above the top of the screen. A window you drag about the screen by the window itself, with the panel open, is never held wholly on it, whichever way this is set.
 - App icons on the bar.
 - Workspace previews on hover.
 - The app list, workspace panel and minimized windows buttons. With the panel button hidden, open the panel with Super+E or the swipe; with both the app list and panel buttons hidden, reach Settings from the gear in the panel.

@@ -405,14 +405,6 @@ Item {
           onModified: function(value) { root.settings.set("panelWorkspaces", value) }
         }
       }
-
-      SettingRow {
-        label: strings.t("settings.lockDrops")
-        ToggleSwitch {
-          checked: root.settings.lockDrops
-          onToggled: root.settings.set("lockDrops", !root.settings.lockDrops)
-        }
-      }
     }
 
     SectionTitle { text: strings.t("settings.section.bar") }

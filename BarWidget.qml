@@ -501,7 +501,7 @@ BarWidget {
     return {
       address: address,
       x: Math.round(monitor.x + prefs.keepX(left, width, peek.screenWidth)),
-      y: Math.round(monitor.y + prefs.keepY(top, height, peek.screenHeight)),
+      y: Math.round(monitor.y + prefs.keepY(top, peek.screenHeight)),
       width: width,
       height: height
     }

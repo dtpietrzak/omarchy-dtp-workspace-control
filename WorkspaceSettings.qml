@@ -12,24 +12,16 @@ Scope {
 
   readonly property int barWorkspaces: count("barWorkspaces", 7)
   readonly property int panelWorkspaces: count("panelWorkspaces", 7)
-  // A window dropped somewhere is kept wholly on the screen. Off, it may hang
-  // off the left, right and bottom edges, with some of it left showing.
-  readonly property bool lockDrops: flag("lockDrops")
   // Where a window's left and top may be on a screen this big, for a drop
-  // there. Its top is never above the top edge either way, nor closer to it
-  // than its title bar is tall, so the title bar is always in reach.
+  // there. It may hang off the left, right and bottom edges, with this much
+  // of it left showing so it is never out of sight. Its top is never closer
+  // to the top edge than its title bar is tall, so that is always in reach.
   readonly property int keepShowing: 50
-  // free is for a window dragged about the screen by the real window, which
-  // is never held wholly on it, whatever the setting: that is how a window
-  // dragged about the screen always goes.
-  function keepX(left, width, screenWidth, free) {
-    var whole = lockDrops && !free
-    var least = whole ? 0 : keepShowing - width
-    var most = whole ? screenWidth - width : screenWidth - keepShowing
-    return Math.max(least, Math.min(most, left))
+  function keepX(left, width, screenWidth) {
+    return Math.max(keepShowing - width, Math.min(screenWidth - keepShowing, left))
   }
-  function keepY(top, height, screenHeight, free) {
-    return Math.max(titleBarHeight, Math.min(lockDrops && !free ? screenHeight - height : screenHeight - keepShowing, top))
+  function keepY(top, screenHeight) {
+    return Math.max(titleBarHeight, Math.min(screenHeight - keepShowing, top))
   }
 
   // Not settings of the plugin's, but ones it has to go by: the title bars

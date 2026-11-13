@@ -823,8 +823,8 @@ Item {
     var top = dragFromScreen ? dragPos.y - dragGrab.y / ratio : dragPos.y - height / 2
     return {
       address: workspaceApps.windowAddress(toplevel),
-      x: Math.round(monitor.x + prefs.keepX(left, width, sw, dragFromScreen)),
-      y: Math.round(monitor.y + prefs.keepY(top, height, sh, dragFromScreen)),
+      x: Math.round(monitor.x + prefs.keepX(left, width, sw)),
+      y: Math.round(monitor.y + prefs.keepY(top, sh)),
       width: width,
       height: height
     }
@@ -849,7 +849,7 @@ Item {
     return cardSpotRect
   }
   // The same spot whichever card that is, its own included: exactly where
-  // the window would be, past the card's edges too when a drop may put it
+  // the window would be, past the card's edges too where the window would go
   // past the screen's. A row shown as its mini view sits on it.
   readonly property var cardSpotRect: {
     if (!dragTile || !monitor || sw <= 0) return null
@@ -866,7 +866,7 @@ Item {
   // under the pointer says which workspace: it is held to that workspace's
   // card, or to the screen when it is over the desktop, giving a little. The
   // landing box says exactly where: it goes wherever the window would,
-  // past the edges too when a drop may.
+  // past the edges too.
   function onCardX(x, width) { return Math.max(0, Math.min(cardW - width, x)) }
   function onCardY(y, height) { return Math.max(0, Math.min(cardH - height, y)) }
 
@@ -960,11 +960,11 @@ Item {
       return
     }
     raiseCarried(tile)
-    var width = tile.ipc.size[0], height = tile.ipc.size[1]
+    var width = tile.ipc.size[0]
     carried = {
       address: workspaceApps.windowAddress(tile.modelData),
       x: Math.round(monitor.x + prefs.keepX(spot.x - monitor.x, width, sw)),
-      y: Math.round(monitor.y + prefs.keepY(spot.y - monitor.y, height, sh))
+      y: Math.round(monitor.y + prefs.keepY(spot.y - monitor.y, sh))
     }
     // The mini view stops where its window does: held on its card at the
     // spot the window is kept to, however far past that the pointer goes.
@@ -1051,7 +1051,7 @@ Item {
     return {
       address: workspaceApps.windowAddress(toplevel),
       x: Math.round(monitor.x + prefs.keepX(left, width, sw)),
-      y: Math.round(monitor.y + prefs.keepY(top, height, sh)),
+      y: Math.round(monitor.y + prefs.keepY(top, sh)),
       width: width,
       height: height
     }
