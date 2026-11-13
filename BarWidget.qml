@@ -695,6 +695,7 @@ BarWidget {
         ? Qt.rect(root.peekLanding.x - root.monitor.x, root.peekLanding.y - root.monitor.y, root.peekLanding.width, root.peekLanding.height)
         : null
       toplevel: root.peekDragItem ? root.peekDragItem.modelData : null
+      titleBars: prefs
     }
 
     // The window under the cursor while it is being dragged.

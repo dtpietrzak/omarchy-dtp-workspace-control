@@ -2402,6 +2402,7 @@ Item {
             ? Qt.rect(root.desktopLanding.x - root.monitor.x, root.desktopLanding.y - root.monitor.y, root.desktopLanding.width, root.desktopLanding.height)
             : null
           toplevel: root.dragTile ? root.dragTile.modelData : null
+          titleBars: prefs
         }
       }
 

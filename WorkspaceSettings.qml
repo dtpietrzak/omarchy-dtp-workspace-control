@@ -28,20 +28,46 @@ Scope {
     return Math.max(titleBarHeight, Math.min(lockDrops ? screenHeight - height : screenHeight - keepShowing, top))
   }
 
-  // Not a setting of the plugin's, but one it has to go by: how tall the title
-  // bars the hyprbars plugin puts on windows are, or 0 without it. They sit
-  // above a window, outside the size Hyprland reports for it. Read when asked,
-  // since they can be turned on or off or resized.
+  // Not settings of the plugin's, but ones it has to go by: the title bars
+  // the hyprbars plugin puts on windows. They sit above a window, outside the
+  // size Hyprland reports for it. The height is 0 without them. Read when
+  // asked, since they can be turned on or off or restyled.
   property int titleBarHeight: 0
+  property color titleBarColor: "transparent"
+  property color titleBarTextColor: "white"
+  property int titleBarTextSize: 10
+  property string titleBarTextAlign: "center"
+  property string titleBarFont: ""
+  property int titleBarPadding: 0
   function readTitleBars() { titleBarReader.running = true }
+
+  // Hyprland gives a color as one number, alpha first.
+  function colorOf(value) {
+    return Qt.rgba(((value >>> 16) & 255) / 255, ((value >>> 8) & 255) / 255, (value & 255) / 255, ((value >>> 24) & 255) / 255)
+  }
+
   Process {
     id: titleBarReader
-    command: ["sh", "-c", "hyprctl getoption plugin:hyprbars:enabled -j; hyprctl getoption plugin:hyprbars:bar_height -j"]
+    command: ["sh", "-c", 'for o in enabled bar_height bar_color col.text bar_text_size bar_text_align bar_text_font bar_padding; do hyprctl getoption "plugin:hyprbars:$o" -j | tr -d "\n"; echo; done']
     stdout: StdioCollector {
       onStreamFinished: {
-        var off = /"bool":\s*false/.test(text)
-        var height = /"int":\s*(\d+)/.exec(text)
-        root.titleBarHeight = !off && height ? parseInt(height[1], 10) : 0
+        // One line for each option, and not JSON for one that isn't there.
+        var found = {}
+        var lines = String(text).split("\n")
+        for (var i = 0; i < lines.length; i++) {
+          try {
+            var entry = JSON.parse(lines[i])
+            var name = String(entry.option).replace("plugin:hyprbars:", "")
+            found[name] = entry["int"] !== undefined ? entry["int"] : entry["str"] !== undefined ? entry["str"] : entry["bool"]
+          } catch (e) {}
+        }
+        root.titleBarHeight = found.enabled !== false && found.bar_height > 0 ? found.bar_height : 0
+        if (found.bar_color !== undefined) root.titleBarColor = root.colorOf(found.bar_color)
+        if (found["col.text"] !== undefined) root.titleBarTextColor = root.colorOf(found["col.text"])
+        if (found.bar_text_size > 0) root.titleBarTextSize = found.bar_text_size
+        if (found.bar_text_align !== undefined) root.titleBarTextAlign = String(found.bar_text_align)
+        if (found.bar_text_font !== undefined) root.titleBarFont = String(found.bar_text_font)
+        if (found.bar_padding !== undefined) root.titleBarPadding = found.bar_padding
       }
     }
   }
