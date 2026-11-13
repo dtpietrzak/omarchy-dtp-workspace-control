@@ -19,6 +19,9 @@ Item {
   property real screenWidth: 0
   property real screenHeight: 0
   property bool previewOnTop: true
+  // With drops locked to the screen, a thumbnail is drawn wholly in the
+  // preview even when its window hangs off the screen.
+  property bool lockToScreen: false
 
   // What drags report positions in.
   property Item dragSpace: null
@@ -331,8 +334,10 @@ Item {
             // after it is dropped on another workspace, until it has gone there.
             readonly property bool carriedAway: rowHider.address !== "" && rowHider.address === workspaceApps.windowAddress(tile.modelData)
             visible: placed && !carriedAway
-            x: placed ? (atX - (root.monitor ? root.monitor.x : 0)) * preview.ratio : 0
-            y: placed ? (atY - (root.monitor ? root.monitor.y : 0)) * preview.ratio : 0
+            readonly property real freeX: placed ? (atX - (root.monitor ? root.monitor.x : 0)) * preview.ratio : 0
+            readonly property real freeY: placed ? (atY - (root.monitor ? root.monitor.y : 0)) * preview.ratio : 0
+            x: root.lockToScreen ? Math.max(0, Math.min(preview.width - width, freeX)) : freeX
+            y: root.lockToScreen ? Math.max(0, Math.min(preview.height - height, freeY)) : freeY
             width: placed ? Math.max(2, client.size[0] * preview.ratio) : 0
             height: placed ? Math.max(2, client.size[1] * preview.ratio) : 0
             z: placed ? (client.floating ? 1000 : 0) + client.stackIndex : 0

@@ -859,6 +859,10 @@ Item {
     return Qt.rect(at.x, at.y, ipc.size[0] * ratio, ipc.size[1] * ratio)
   }
 
+  // Where a mini view is drawn on its card, from where its window is.
+  function onCardX(x, width) { return prefs.lockDrops ? Math.max(0, Math.min(cardW - width, x)) : x }
+  function onCardY(y, height) { return prefs.lockDrops ? Math.max(0, Math.min(cardH - height, y)) : y }
+
   function cardFor(id) {
     for (var i = 0; i < cards.children.length; i++) {
       if (cards.children[i].wsId === id) return cards.children[i]
@@ -1710,8 +1714,11 @@ Item {
                   // Not shown on its old card after a drop sends it elsewhere,
                   // while the move is on its way.
                   visible: placed && root.leavingAddress !== workspaceApps.windowAddress(modelData)
-                  x: placed ? (atX - (root.monitor ? root.monitor.x : 0)) * ratio : 0
-                  y: placed ? (atY - (root.monitor ? root.monitor.y : 0)) * ratio : 0
+                  // With drops locked to the screen, a mini view is drawn wholly
+                  // on its card even when its window hangs off the screen, as one
+                  // dragged about the screen by the window itself can.
+                  x: placed ? root.onCardX((atX - (root.monitor ? root.monitor.x : 0)) * ratio, width) : 0
+                  y: placed ? root.onCardY((atY - (root.monitor ? root.monitor.y : 0)) * ratio, height) : 0
                   width: placed ? Math.max(2, ipc.size[0] * ratio) : 0
                   height: placed ? Math.max(2, ipc.size[1] * ratio) : 0
                   z: (ipc.floating ? 1000 : 0) + stackIndex
