@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.dtpietrzak.workspace-control",
   "name": "Workspace Control",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": "dtpietrzak",
   "license": "MIT",
   "description": "A workspace row for the bar with app icons and live hover previews, and a panel of every workspace on a four finger swipe. Move, focus, close and reorder by dragging.",
