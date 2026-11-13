@@ -772,8 +772,20 @@ Item {
     // Where it is before what it is, so nothing that follows the drag works
     // from where the last one ended.
     dragPos = Qt.point(x, y)
-    dragTile = tile
     var card = dragCardAt(tile, x, y)
+    if (dragTile !== tile) {
+      // A mini view starts out held by where it was picked up.
+      centerRun.stop()
+      leftOrigin = !!tile.listRow || dragFromScreen
+      centering = leftOrigin ? 1 : 0
+    }
+    if (!leftOrigin && !(card && card.wsId === tile.wsId)) {
+      // Off the workspace it came from, it comes round to its middle.
+      leftOrigin = true
+      if (Style.reduceMotion) centering = 1
+      else centerRun.restart()
+    }
+    dragTile = tile
     // Over the desktop, a window is headed for the workspace being shown,
     // whose card lights up the same as one it is carried over. One already on
     // that workspace is treated the same, and moves when it is let go.
@@ -872,6 +884,22 @@ Item {
     return true
   }
 
+  // The spot of a window, from its corner, that is kept under the pointer as
+  // its landing spot is worked out. A row's window is held by its middle. A
+  // mini view's is held by the spot it was picked up by for as long as it is
+  // over the workspace it came from, so picking it up doesn't move it, and
+  // by its middle once it has left, which it comes round to over a moment.
+  // centering runs 0 to 1 as it does, and stays there if it is brought back.
+  property real centering: 1
+  property bool leftOrigin: false
+  NumberAnimation { id: centerRun; target: root; property: "centering"; to: 1; duration: Style.duration(200); easing.type: Easing.OutCubic }
+  function heldBy(tile, width, height) {
+    if (!tile || tile.listRow || sw <= 0) return Qt.point(width / 2, height / 2)
+    var ratio = root.cardW / sw
+    var grabX = dragGrab.x / ratio, grabY = dragGrab.y / ratio
+    return Qt.point(grabX + (width / 2 - grabX) * centering, grabY + (height / 2 - grabY) * centering)
+  }
+
   // Where on the screen a window let go of over the desktop goes: centered on
   // the pointer, whatever spot its mini view or row was picked up by. One
   // picked up by the real window stays held by that spot of it, as a window
@@ -882,8 +910,9 @@ Item {
     if (!monitor || !ipc || !ipc.floating || !ipc.size || sw <= 0) return null
     var width = ipc.size[0], height = ipc.size[1]
     var ratio = root.cardW / sw
-    var left = dragFromScreen ? dragPos.x - dragGrab.x / ratio : dragPos.x - width / 2
-    var top = dragFromScreen ? dragPos.y - dragGrab.y / ratio : dragPos.y - height / 2
+    var held = dragFromScreen ? Qt.point(dragGrab.x / ratio, dragGrab.y / ratio) : heldBy(tile, width, height)
+    var left = dragPos.x - held.x
+    var top = dragPos.y - held.y
     return {
       address: workspaceApps.windowAddress(toplevel),
       x: Math.round(monitor.x + prefs.keepX(left, width, sw)),
@@ -1065,8 +1094,9 @@ Item {
     var ratio = root.cardW / sw
     var inCard = card.mapFromItem(panel.contentItem, dragPos.x, dragPos.y)
     var width = ipc.size[0], height = ipc.size[1]
-    var left = inCard.x / ratio - width / 2
-    var top = inCard.y / ratio - height / 2
+    var held = heldBy(tile, width, height)
+    var left = inCard.x / ratio - held.x
+    var top = inCard.y / ratio - held.y
     return {
       address: workspaceApps.windowAddress(toplevel),
       x: Math.round(monitor.x + prefs.keepX(left, width, sw)),
