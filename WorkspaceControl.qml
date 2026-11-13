@@ -769,8 +769,10 @@ Item {
   function dragTo(tile, x, y, grab) {
     if (dragTile !== tile) pickedAt = Date.now()
     if (dragTile !== tile) dragGrab = grab || Qt.point(tile.width / 2, tile.height / 2)
-    dragTile = tile
+    // Where it is before what it is, so nothing that follows the drag works
+    // from where the last one ended.
     dragPos = Qt.point(x, y)
+    dragTile = tile
     var card = dragCardAt(tile, x, y)
     // Over the desktop, a window is headed for the workspace being shown,
     // whose card lights up the same as one it is carried over. One already on
@@ -809,6 +811,17 @@ Item {
   // where it was as the box fades in where it is. A box fades in whenever it
   // comes up. Not for a window picked up by the real window, whose box comes
   // up exactly where the window is.
+  //
+  // A box that comes up on the window's own workspace also sets off from
+  // where the window is and settles on the pointer as it fades in, so the
+  // window is seen to come to the hand. settling runs 1 to 0 as it does.
+  property real settling: 0
+  property point settleFrom: Qt.point(0, 0)
+  NumberAnimation { id: boxSettle; target: root; property: "settling"; from: 1; to: 0; duration: Style.duration(200); easing.type: Easing.OutCubic }
+  // A landing spot, on its way there.
+  function settled(spot) {
+    return Qt.point(spot.x + (settleFrom.x - spot.x) * settling, spot.y + (settleFrom.y - spot.y) * settling)
+  }
   property real boxFade: 1
   property real originFade: 0
   property rect originRect: Qt.rect(0, 0, 0, 0)
@@ -818,11 +831,22 @@ Item {
   onLandingShownChanged: {
     boxFadeIn.stop()
     originFadeOut.stop()
+    boxSettle.stop()
     boxFade = 1
     originFade = 0
+    settling = 0
     var tile = dragTile
     if (!landingShown || !tile || dragFromScreen || Style.reduceMotion) return
     boxFadeIn.start()
+    // Worked out here, from where the pointer is: hoverId is not set yet when
+    // a box first comes up.
+    var card = dragCardAt(tile, dragPos.x, dragPos.y)
+    var own = card ? card.wsId === tile.wsId : tile.wsId === activeId && overDesktop(dragPos.x, dragPos.y)
+    var ipc = tile.modelData ? tile.modelData.lastIpcObject : null
+    if (own && ipc && ipc.at) {
+      settleFrom = Qt.point(ipc.at[0], ipc.at[1])
+      boxSettle.start()
+    }
     // Only as it is picked up: later on the mini view is long gone from there.
     if (tile.listRow || Date.now() - pickedAt > 150) return
     var corner = tile.mapToItem(panel.contentItem, 0, 0)
@@ -897,13 +921,15 @@ Item {
     var ipc = spot ? dragTile.modelData.lastIpcObject : null
     if (!spot || !ipc || !ipc.size) return null
     var ratio = root.cardW / sw
-    var at = card.mapToItem(panel.contentItem, (spot.x - monitor.x) * ratio, (spot.y - monitor.y) * ratio)
+    var shown = settled(spot)
+    var at = card.mapToItem(panel.contentItem, (shown.x - monitor.x) * ratio, (shown.y - monitor.y) * ratio)
     return Qt.rect(at.x, at.y, ipc.size[0] * ratio, ipc.size[1] * ratio)
   }
   // The box on the screen, in the panel's coordinates.
   readonly property var desktopBox: {
     if (!desktopLanding || !monitor) return null
-    return Qt.rect(desktopLanding.x - monitor.x, desktopLanding.y - monitor.y, desktopLanding.width, desktopLanding.height)
+    var shown = settled(desktopLanding)
+    return Qt.rect(shown.x - monitor.x, shown.y - monitor.y, desktopLanding.width, desktopLanding.height)
   }
 
   // Two things show where a carried window is going. The small picture of it
