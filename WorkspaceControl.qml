@@ -782,6 +782,9 @@ Item {
   property bool minimizedToDesktop: false
   // A landing box is up for what is being carried, on the screen or on a card.
   readonly property bool landingShown: !!desktopLanding || !!cardLanding
+  // The row being carried is still in its list: a box is up, and on the
+  // row's own workspace.
+  readonly property bool rowStays: !!dragTile && !!dragTile.listRow && landingShown && hoverId === dragTile.wsId
 
   // A box that comes up on the window's own workspace doesn't start out
   // centered on the pointer: it sets off from where the window is and settles
@@ -2406,7 +2409,10 @@ Item {
       ShaderEffectSource {
         visible: !!root.dragTile
         sourceItem: root.dragTile
-        hideSource: true
+        // A row stays in its list while a landing box shows its window still
+        // on its own workspace. It leaves the list once it is carried over
+        // another workspace, which is what says the window is going.
+        hideSource: !root.rowStays
         width: root.dragTile ? root.dragTile.width : 0
         height: root.dragTile ? root.dragTile.height : 0
         // It keeps hold of the spot it was picked up by: a list row along its
