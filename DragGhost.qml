@@ -76,10 +76,7 @@ Item {
   }
 
   // Its border, drawn apart so it stays thin and solid at any size and opacity.
-  // A row has one. A thumbnail has none: the outline belongs to the box that
-  // shows where its window would land.
   Rectangle {
-    visible: !ghost.source || ghost.source.client === undefined
     x: ghost.position.x - ghost.grab.x * ghost.itemScale + ghost.offsetX
     y: ghost.position.y - ghost.grab.y * ghost.itemScale + ghost.offsetY
     width: ghost.source ? ghost.source.width * ghost.itemScale : 0

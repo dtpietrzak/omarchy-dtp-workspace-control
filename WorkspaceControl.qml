@@ -1805,9 +1805,7 @@ Item {
 
                   Rectangle {
                     anchors.fill: parent
-                    // Not while it is carried: the outline belongs to the landing
-                    // box then, and the picture under the pointer has none.
-                    visible: root.hoverTile === tile && root.dragTile !== tile
+                    visible: root.highlightTile === tile
                     color: "transparent"
                     radius: Style.cornerRadius
                     border.width: 1
