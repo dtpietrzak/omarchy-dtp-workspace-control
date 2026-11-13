@@ -357,7 +357,8 @@ Item {
 
             Rectangle {
               anchors.fill: parent
-              visible: root.hoverTile === tile
+              // Not while it is carried, when the picture under the pointer has none.
+              visible: root.hoverTile === tile && root.dragItem !== tile
               color: "transparent"
               radius: Style.cornerRadius
               border.width: 1
