@@ -790,6 +790,9 @@ Item {
   // The mini view a carried row is shown as, while it is over the workspace
   // being shown.
   property Item rowThumb: null
+  // A landing box is up for what is being carried: on the screen, on a card,
+  // or as the mini view a row has turned into.
+  readonly property bool landingShown: !!desktopLanding || !!cardLanding || !!rowThumb
   // Set for a drag that began on the real window, on the desktop, and not on
   // its mini view or its row.
   property bool dragFromScreen: false
@@ -2471,9 +2474,10 @@ Item {
         // width, a mini view wherever it was grabbed.
         x: root.heldAt ? root.heldAt.x : root.dragPos.x - held.x + root.carryNudge.x
         y: root.heldAt ? root.heldAt.y : root.dragPos.y - held.y + root.carryNudge.y
-        // Still here while a row is shown as its mini view, so the row stays
-        // out of the list.
-        opacity: root.rowThumb ? 0 : 0.9
+        // Not shown while a landing box is: that says where the window is
+        // going, and says it better. Still here then, unseen, so what is
+        // carried stays out of its card or its list.
+        opacity: root.landingShown ? 0 : 0.9
         readonly property point held: root.dragTile && root.dragTile.listRow ? Qt.point(root.dragTile.grabX, height / 2) : root.dragGrab
         // Smaller while it is carried, shrunk toward the spot it is held by.
         transform: Scale {
@@ -2491,7 +2495,10 @@ Item {
       // no spot of its own, and over the desktop, it is held by its middle.
       Item {
         id: thumbGhost
-        visible: !!root.rowThumb
+        // On a card it is the landing box. Over the desktop the box on the
+        // screen is, and this is only a small picture under the pointer, so
+        // it gives way to that one.
+        visible: !!root.rowThumb && (!!root.cardSpotRect || !root.desktopLanding)
         width: root.rowThumb ? root.rowThumb.width : 0
         height: root.rowThumb ? root.rowThumb.height : 0
         x: root.cardSpotRect ? root.cardSpotRect.x : root.dragPos.x - width / 2

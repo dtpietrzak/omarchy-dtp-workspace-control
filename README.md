@@ -62,7 +62,7 @@ A four finger swipe up pulls up a band of workspaces with a live mini view of ea
 - Drag a window, by its mini view or its row in the list, up onto the desktop to bring it to the workspace you're on. A floating window lands where you let go, shown by an outline with the window faintly inside as you carry it.
 - Drag a floating window onto another workspace, by its mini view or its row in the list, and an outline shows where it will land there. A row can be dropped on its own workspace the same way, and turns into its window's mini view while it is over the workspace you're on.
 - A window you drop on a workspace or the desktop becomes the top window there.
-- While you carry a mini view, the small picture under the pointer is held to the workspace it would land on, giving a little as you pull past its edge, and the outline shows exactly where on it.
+- While you carry a floating window, the outline shows exactly where it would land, and takes the place of the small picture under the pointer. A tiled window has no outline: its small picture is held to the workspace it would land on, giving a little as you pull past its edge.
 - Drag a workspace's number and icons along the row to move it.
 - The gear above the first workspace opens the settings, and the ... above the last one lists minimized windows.
 - Click a workspace's number to jump to it. Number keys type into the search field.
