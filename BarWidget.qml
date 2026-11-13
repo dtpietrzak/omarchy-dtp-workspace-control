@@ -669,7 +669,7 @@ BarWidget {
             root.dropTargetId = root.workspaceAt(x, y)
             root.peekOverDesktop = root.dropTargetId < 0 && root.overDesktop(x, y, card)
             peekContent.item.setAway(!root.peekOverDesktop && !root.onCard(x, y, card),
-              root.peekId === root.activeId && !!root.peekLanding)
+              root.peekId === root.activeId && !!root.peekLanding, !!root.peekLanding)
           }
           onDragDropped: function(toplevel, fromId) {
             var target = root.dropTargetId
@@ -720,8 +720,9 @@ BarWidget {
       source: peekContent.item && root.dragSource === peekContent.item ? peekContent.item.ghostItem : null
       position: root.peekDragPos
       grab: peekContent.item ? peekContent.item.ghostGrab : Qt.point(0, 0)
-      // A row stays in its list, so only a thumbnail is hidden while carried.
-      keepSource: root.peekRowDrag
+      // A row stays in its list while a copy of it is carried. A thumbnail
+      // is hidden while it is carried, one a row has turned into as well.
+      keepSource: root.peekRowDrag && source === root.peekDragItem
       // Down to half its carried size, fading, as it gives way to the box.
       itemScale: root.peekDragScale * (1 - 0.5 * root.peekHandover)
       fade: root.peekHandover

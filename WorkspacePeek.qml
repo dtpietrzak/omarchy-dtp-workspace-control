@@ -98,6 +98,10 @@ Item {
   // held by its middle, and there acts the same as if the thumbnail had been
   // picked up. Anywhere else a copy of the row is what is carried. The row
   // itself never leaves the list: it stays in its place, faint.
+  // A landing box is up on the screen for the window being dragged, which
+  // whoever owns the card says. Its thumbnail is out of the preview then:
+  // the box is where it is going, and one of it is enough.
+  property bool landingUp: false
   readonly property Item ghostItem: {
     var item = dragItem
     if (!item || item.client !== undefined || !overPreview) return item
@@ -135,8 +139,9 @@ Item {
   // go. Over the card, where letting go leaves it be, it stays. boxed is while
   // a landing box on the screen stands in for a window that is on it, a
   // thumbnail's as much as a row's, which leaves the screen for that too.
-  function setAway(away, boxed) {
+  function setAway(away, boxed, landing) {
     if (!dragItem) return
+    landingUp = landing
     var isRow = dragItem.client === undefined
     if (boxed || (isRow && away)) rowHider.hide(workspaceApps.windowAddress(dragItem.modelData))
     else rowHider.show()
@@ -145,7 +150,11 @@ Item {
   // A real window being carried is above every other window from the moment
   // it first moves, as it will be once it is let go. Once for each drag.
   property string raisedAddress: ""
-  onDragItemChanged: if (!dragItem) raisedAddress = ""
+  onDragItemChanged: {
+    if (dragItem) return
+    raisedAddress = ""
+    landingUp = false
+  }
   function raiseCarried(address) {
     if (address === "" || address === raisedAddress) return
     raisedAddress = address
@@ -326,7 +335,8 @@ Item {
 
             // Out of the preview while its row is carried off onto the bar, and
             // after it is dropped on another workspace, until it has gone there.
-            readonly property bool carriedAway: rowHider.address !== "" && rowHider.address === workspaceApps.windowAddress(tile.modelData)
+            readonly property bool carriedAway: (rowHider.address !== "" && rowHider.address === workspaceApps.windowAddress(tile.modelData))
+              || (root.landingUp && !!root.dragItem && root.dragItem !== tile && root.dragItem.modelData === tile.modelData)
             visible: placed && !carriedAway
             x: placed ? (atX - (root.monitor ? root.monitor.x : 0)) * preview.ratio : 0
             y: placed ? (atY - (root.monitor ? root.monitor.y : 0)) * preview.ratio : 0
