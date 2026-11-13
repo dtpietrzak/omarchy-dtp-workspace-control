@@ -885,12 +885,12 @@ Item {
   // the pointer out, less and less the further that goes, and never by more
   // than carryGive of its own size. So it shows the workspace it is going to
   // and still moves with the hand.
-  readonly property real carryGive: 0.6
+  readonly property real carryGive: 0.35
   function elastic(free, least, most, size) {
     var kept = Math.max(least, Math.min(most, free))
     var past = free - kept
     var reach = Math.max(1, size * carryGive)
-    return kept + (past < 0 ? -1 : 1) * reach * (1 - 1 / (Math.abs(past) * 0.55 / reach + 1))
+    return kept + (past < 0 ? -1 : 1) * reach * (1 - 1 / (Math.abs(past) * 0.45 / reach + 1))
   }
   readonly property point carryNudge: {
     var area = carryArea
