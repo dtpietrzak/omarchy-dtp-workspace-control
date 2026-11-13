@@ -722,14 +722,14 @@ Item {
   }
 
   // The card the window being dragged is over. The same, but for a row from
-  // the list over its own workspace: that counts only on the card itself. The
-  // band around it, which the row crosses on its way down from the list, is
-  // over nothing, so its window stays as it is until it gets there.
+  // the list over its own workspace: the strip above its card, which the row
+  // crosses on its way down from the list, is over nothing, so its window
+  // stays as it is until the row gets to the card. Beside the card and below
+  // it count as the card, as they do for any other.
   function dragCardAt(tile, x, y) {
     var card = cardAt(x, y)
     if (!card || !tile || !tile.listRow || card.wsId !== tile.wsId) return card
-    var point = card.mapFromItem(panel.contentItem, x, y)
-    return card.contains(point) ? card : null
+    return card.mapFromItem(panel.contentItem, x, y).y >= 0 ? card : null
   }
 
   // The mini view of the topmost real window at this screen position. A
