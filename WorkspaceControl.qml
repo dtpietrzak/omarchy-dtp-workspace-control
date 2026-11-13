@@ -1017,7 +1017,12 @@ Item {
   property var placedTiles: ({})
 
   // The window taken off the screen while it is carried away from its card.
-  WindowHider { id: carriedHider }
+  WindowHider {
+    id: carriedHider
+    // The panel is there for as long as the shell is, so it is the one to put
+    // back any window the last shell left hidden.
+    Component.onCompleted: recover()
+  }
 
   function setWindowHidden(toplevel, hide) {
     var address = toplevel ? workspaceApps.windowAddress(toplevel) : ""

@@ -30,6 +30,7 @@ Scope {
     var recent = remembered[next]
     if (recent && Date.now() - recent.at < rememberMs) {
       opacity = recent.values
+      note(next, recent.values)
       set(next, 0, 0)
       return
     }
@@ -50,6 +51,7 @@ Scope {
     opacity = null
     if (was !== "" && values) {
       set(was, values[0], values[1])
+      forget(was)
       remembered[was] = { values: values, at: Date.now() }
     }
   }
@@ -95,6 +97,33 @@ Scope {
     }
   }
 
+  // A hidden window is written down, in a file named for it that holds what
+  // its opacity was, for as long as it is hidden. If the shell goes away with
+  // one hidden, restarted or crashed, nothing here gets to put it back, and
+  // it would stay invisible. Whatever is still written down when the shell
+  // next starts is put back then. The files are in the runtime directory,
+  // which is emptied at logout, when the windows are gone too.
+  readonly property string notes: 'd="${XDG_RUNTIME_DIR:-/tmp}/dtpietrzak-workspacecontrol-hidden"; '
+
+  function note(target, values) {
+    Quickshell.execDetached(["sh", "-c", notes + 'mkdir -p "$d" && printf "%s %s\\n" "$2" "$3" > "$d/$1"',
+      "sh", target, String(values[0]), String(values[1])])
+  }
+
+  function forget(target) {
+    Quickshell.execDetached(["sh", "-c", notes + 'rm -f "$d/$1"', "sh", target])
+  }
+
+  // Puts back every window still written down, and forgets them. For one
+  // hider to run, once, as the shell starts. Anything but an address and two
+  // numbers is not run.
+  function recover() {
+    Quickshell.execDetached(["sh", "-c", notes + '[ -d "$d" ] || exit 0; for f in "$d"/0x*; do [ -f "$f" ] || continue; a=${f##*/}; read -r on off < "$f"; rm -f "$f"; '
+      + 'case "$a$on$off" in *[!0-9a-fA-Fx.]*|"") continue;; esac; [ -n "$on" ] && [ -n "$off" ] || continue; '
+      + 'hyprctl dispatch "hl.dsp.window.set_prop({ window = \\"address:$a\\", prop = \\"opacity\\", value = \\"$on\\" })"; '
+      + 'hyprctl dispatch "hl.dsp.window.set_prop({ window = \\"address:$a\\", prop = \\"opacity_inactive\\", value = \\"$off\\" })"; done'])
+  }
+
   // Gone with a window still hidden, as when its card closes mid-drag: put it back.
   Component.onDestruction: show()
 
@@ -122,6 +151,7 @@ Scope {
         }
         hider.opacity = [active, inactive]
         hider.remembered[hider.address] = { values: [active, inactive], at: Date.now() }
+        hider.note(hider.address, [active, inactive])
         hider.set(hider.address, 0, 0)
       }
     }
