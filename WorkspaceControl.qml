@@ -852,7 +852,7 @@ Item {
 
   // Where a floating window would land on the card it is carried over, as the
   // outline of its mini view there. Any card, its own and the one being shown
-  // the same as the rest.
+  // the same as the rest. Over the desktop, the card of the one being shown.
   readonly property var cardLanding: cardSpotRect
   // Exactly where the window would be, past the card's edges too where it
   // would go past the screen's.
@@ -860,6 +860,12 @@ Item {
     if (!dragTile || !monitor || sw <= 0) return null
     var card = dragCardAt(dragTile, dragPos.x, dragPos.y)
     var spot = card ? dropSpot(dragTile, card) : null
+    // Carried over the desktop, it is outlined on the card of the workspace
+    // being shown as well, following the box on the screen.
+    if (!card && toDesktop && desktopLanding) {
+      card = cardFor(activeId)
+      spot = card ? desktopLanding : null
+    }
     var ipc = spot ? dragTile.modelData.lastIpcObject : null
     if (!spot || !ipc || !ipc.size) return null
     var ratio = root.cardW / sw
