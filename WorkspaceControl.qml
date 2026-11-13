@@ -786,9 +786,22 @@ Item {
   readonly property bool landingShown: !!desktopLanding || !!cardLanding
   // The row being carried is over another workspace than its own.
   readonly property bool rowAway: !!dragTile && !!dragTile.listRow && hoverId > 0 && hoverId !== dragTile.wsId
-  // The row being carried is still in its list: a box is up, and on the
-  // row's own workspace.
-  readonly property bool rowStays: !!dragTile && !!dragTile.listRow && landingShown && hoverId === dragTile.wsId
+  // How far what is under the pointer has given way to the landing box, 0 to
+  // 1. A mini view gives way at once. A row gives way as it is carried down
+  // into a card: the box is centered on the pointer but can't go above the
+  // top of the workspace, so it sits still at the top until the pointer is
+  // half its height down. Over that stretch the row shrinks and fades, so
+  // the pull downward shows, and it is gone as the box starts to move.
+  readonly property real handover: {
+    if (!dragTile || !landingShown) return 0
+    if (!dragTile.listRow) return 1
+    var card = dragCardAt(dragTile, dragPos.x, dragPos.y)
+    var ipc = dragTile.modelData ? dragTile.modelData.lastIpcObject : null
+    if (!card || !ipc || !ipc.size || sw <= 0) return 1
+    var stretch = (ipc.size[1] / 2 + prefs.titleBarHeight) * root.cardW / sw
+    var down = card.mapFromItem(panel.contentItem, dragPos.x, dragPos.y).y
+    return stretch > 0 ? Math.max(0, Math.min(1, down / stretch)) : 1
+  }
 
   // A box that comes up on the window's own workspace doesn't start out
   // centered on the pointer: it sets off from where the window is and settles
@@ -2281,10 +2294,12 @@ Item {
               visible: !(root.dragTile && !root.dragTile.listRow && root.dragTile.modelData === modelData
                 && root.hoverId > 0 && root.hoverId !== root.dragTile.wsId)
 
-              // Fades in as it joins the list.
-              opacity: 0
+              // Fades in as it joins the list. Faint while it is being dragged:
+              // it stays in its place, and a copy of it is what is carried.
+              property real joined: 0
+              opacity: joined * (root.dragTile === row ? 0.5 : 1)
               Component.onCompleted: rowFade.start()
-              NumberAnimation { id: rowFade; target: row; property: "opacity"; to: 1; duration: Style.duration(100); easing.type: Easing.OutCubic }
+              NumberAnimation { id: rowFade; target: row; property: "joined"; to: 1; duration: Style.duration(100); easing.type: Easing.OutCubic }
 
               Layout.fillWidth: true
               implicitWidth: title.implicitWidth + windowList.iconSize * 2 + windowList.edge * 4
@@ -2293,7 +2308,7 @@ Item {
               Rectangle {
                 anchors.fill: parent
                 radius: Style.cornerRadius
-                // A row being dragged leaves the list, so it brings a backing along.
+                // The copy of a row that is carried off the list brings a backing along.
                 color: root.dragTile === row ? Commons.Color.background
                   : row.picked || rowMouse.containsMouse || closeButton.hovered ? Style.hoverFill : "transparent"
                 border.width: root.dragTile === row || row.picked || rowMouse.containsMouse || closeButton.hovered ? 1 : 0
@@ -2428,27 +2443,27 @@ Item {
       ShaderEffectSource {
         visible: !!root.dragTile
         sourceItem: root.dragTile
-        // A row stays in its list while a landing box shows its window still
-        // on its own workspace. It leaves the list once it is carried over
-        // another workspace, which is what says the window is going.
-        hideSource: !root.rowStays
+        // A mini view leaves its card while it is carried. A row never leaves
+        // its list: it stays where it was, faint, and this is a copy of it.
+        hideSource: !(root.dragTile && root.dragTile.listRow)
         width: root.dragTile ? root.dragTile.width : 0
         height: root.dragTile ? root.dragTile.height : 0
         // It keeps hold of the spot it was picked up by: a list row along its
         // width, a mini view wherever it was grabbed.
         x: root.dragPos.x - held.x + root.carryNudge.x
         y: root.dragPos.y - held.y + root.carryNudge.y
-        // Not shown while a landing box is: that says where the window is
-        // going, and says it better. Still here then, unseen, so what is
-        // carried stays out of its card or its list.
-        opacity: root.landingShown ? 0 : 0.9
+        // It gives way to a landing box, which says where the window is
+        // going, and says it better. Still here then, unseen, so a mini view
+        // that is carried stays out of its card.
+        opacity: 0.9 * (1 - root.handover)
         readonly property point held: root.dragTile && root.dragTile.listRow ? Qt.point(root.dragTile.grabX, height / 2) : root.dragGrab
         // Smaller while it is carried, shrunk toward the spot it is held by.
         transform: Scale {
           origin.x: dragGhost.held.x
           origin.y: dragGhost.held.y
-          xScale: root.dragScale
-          yScale: root.dragScale
+          // Down to half its carried size as it gives way.
+          xScale: root.dragScale * (1 - 0.5 * root.handover)
+          yScale: root.dragScale * (1 - 0.5 * root.handover)
         }
         id: dragGhost
       }
