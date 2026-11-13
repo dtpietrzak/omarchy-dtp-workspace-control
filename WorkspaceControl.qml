@@ -767,6 +767,7 @@ Item {
 
   // grab is the spot on the tile the drag started from, taken when it starts.
   function dragTo(tile, x, y, grab) {
+    if (dragTile !== tile) pickedAt = Date.now()
     if (dragTile !== tile) dragGrab = grab || Qt.point(tile.width / 2, tile.height / 2)
     dragTile = tile
     dragPos = Qt.point(x, y)
@@ -803,26 +804,30 @@ Item {
     return stretch > 0 ? Math.max(0, Math.min(1, down / stretch)) : 1
   }
 
-  // A box that comes up on the window's own workspace doesn't start out
-  // centered on the pointer: it sets off from where the window is and settles
-  // there, so the window is seen to come to the hand and doesn't jump to it.
-  // settling runs 1 to 0 as it does. Not for a window picked up by the real
-  // window, which stays held where it was picked up.
-  property real settling: 0
-  property point settleFrom: Qt.point(0, 0)
-  NumberAnimation { id: boxSettle; target: root; property: "settling"; from: 1; to: 0; duration: Style.duration(200); easing.type: Easing.OutCubic }
+  // A mini view picked up gives way to its landing box, which is centered on
+  // the pointer and so somewhere else. Not at a jump: the mini view fades out
+  // where it was as the box fades in where it is. A box fades in whenever it
+  // comes up. Not for a window picked up by the real window, whose box comes
+  // up exactly where the window is.
+  property real boxFade: 1
+  property real originFade: 0
+  property rect originRect: Qt.rect(0, 0, 0, 0)
+  property real pickedAt: 0
+  NumberAnimation { id: boxFadeIn; target: root; property: "boxFade"; from: 0; to: 1; duration: Style.duration(200); easing.type: Easing.OutCubic }
+  NumberAnimation { id: originFadeOut; target: root; property: "originFade"; from: 1; to: 0; duration: Style.duration(200); easing.type: Easing.OutCubic }
   onLandingShownChanged: {
-    boxSettle.stop()
-    settling = 0
+    boxFadeIn.stop()
+    originFadeOut.stop()
+    boxFade = 1
+    originFade = 0
     var tile = dragTile
-    var ipc = tile && tile.modelData ? tile.modelData.lastIpcObject : null
-    if (!landingShown || !tile || dragFromScreen || hoverId !== tile.wsId || !ipc || !ipc.at || Style.reduceMotion) return
-    settleFrom = Qt.point(ipc.at[0], ipc.at[1])
-    boxSettle.start()
-  }
-  // A landing spot, on its way there.
-  function settled(spot) {
-    return Qt.point(spot.x + (settleFrom.x - spot.x) * settling, spot.y + (settleFrom.y - spot.y) * settling)
+    if (!landingShown || !tile || dragFromScreen || Style.reduceMotion) return
+    boxFadeIn.start()
+    // Only as it is picked up: later on the mini view is long gone from there.
+    if (tile.listRow || Date.now() - pickedAt > 150) return
+    var corner = tile.mapToItem(panel.contentItem, 0, 0)
+    originRect = Qt.rect(corner.x, corner.y, tile.width, tile.height)
+    originFadeOut.start()
   }
   // Set for a drag that began on the real window, on the desktop, and not on
   // its mini view or its row.
@@ -892,15 +897,13 @@ Item {
     var ipc = spot ? dragTile.modelData.lastIpcObject : null
     if (!spot || !ipc || !ipc.size) return null
     var ratio = root.cardW / sw
-    var shown = settled(spot)
-    var at = card.mapToItem(panel.contentItem, (shown.x - monitor.x) * ratio, (shown.y - monitor.y) * ratio)
+    var at = card.mapToItem(panel.contentItem, (spot.x - monitor.x) * ratio, (spot.y - monitor.y) * ratio)
     return Qt.rect(at.x, at.y, ipc.size[0] * ratio, ipc.size[1] * ratio)
   }
   // The box on the screen, in the panel's coordinates.
   readonly property var desktopBox: {
     if (!desktopLanding || !monitor) return null
-    var shown = settled(desktopLanding)
-    return Qt.rect(shown.x - monitor.x, shown.y - monitor.y, desktopLanding.width, desktopLanding.height)
+    return Qt.rect(desktopLanding.x - monitor.x, desktopLanding.y - monitor.y, desktopLanding.width, desktopLanding.height)
   }
 
   // Two things show where a carried window is going. The small picture of it
@@ -2428,6 +2431,7 @@ Item {
 
         GhostBox {
           spot: root.desktopBox
+          opacity: root.boxFade
           toplevel: root.dragTile ? root.dragTile.modelData : null
           titleBars: prefs
         }
@@ -2436,7 +2440,19 @@ Item {
       // And where one would land on a card.
       GhostBox {
         spot: root.cardLanding
+        opacity: root.boxFade
         toplevel: root.dragTile ? root.dragTile.modelData : null
+      }
+
+      // A mini view just picked up, fading out where it was.
+      ShaderEffectSource {
+        visible: root.originFade > 0 && !!root.dragTile
+        sourceItem: root.dragTile
+        x: root.originRect.x
+        y: root.originRect.y
+        width: root.originRect.width
+        height: root.originRect.height
+        opacity: root.originFade
       }
 
       // The window under the cursor while it is being dragged.
