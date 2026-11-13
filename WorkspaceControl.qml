@@ -782,6 +782,28 @@ Item {
   property bool minimizedToDesktop: false
   // A landing box is up for what is being carried, on the screen or on a card.
   readonly property bool landingShown: !!desktopLanding || !!cardLanding
+
+  // A box that comes up on the window's own workspace doesn't start out
+  // centered on the pointer: it sets off from where the window is and settles
+  // there, so the window is seen to come to the hand and doesn't jump to it.
+  // settling runs 1 to 0 as it does. Not for a window picked up by the real
+  // window, which stays held where it was picked up.
+  property real settling: 0
+  property point settleFrom: Qt.point(0, 0)
+  NumberAnimation { id: boxSettle; target: root; property: "settling"; from: 1; to: 0; duration: Style.duration(200); easing.type: Easing.OutCubic }
+  onLandingShownChanged: {
+    boxSettle.stop()
+    settling = 0
+    var tile = dragTile
+    var ipc = tile && tile.modelData ? tile.modelData.lastIpcObject : null
+    if (!landingShown || !tile || dragFromScreen || hoverId !== tile.wsId || !ipc || !ipc.at || Style.reduceMotion) return
+    settleFrom = Qt.point(ipc.at[0], ipc.at[1])
+    boxSettle.start()
+  }
+  // A landing spot, on its way there.
+  function settled(spot) {
+    return Qt.point(spot.x + (settleFrom.x - spot.x) * settling, spot.y + (settleFrom.y - spot.y) * settling)
+  }
   // Set for a drag that began on the real window, on the desktop, and not on
   // its mini view or its row.
   property bool dragFromScreen: false
@@ -841,8 +863,15 @@ Item {
     var ipc = spot ? dragTile.modelData.lastIpcObject : null
     if (!spot || !ipc || !ipc.size) return null
     var ratio = root.cardW / sw
-    var at = card.mapToItem(panel.contentItem, (spot.x - monitor.x) * ratio, (spot.y - monitor.y) * ratio)
+    var shown = settled(spot)
+    var at = card.mapToItem(panel.contentItem, (shown.x - monitor.x) * ratio, (shown.y - monitor.y) * ratio)
     return Qt.rect(at.x, at.y, ipc.size[0] * ratio, ipc.size[1] * ratio)
+  }
+  // The box on the screen, in the panel's coordinates.
+  readonly property var desktopBox: {
+    if (!desktopLanding || !monitor) return null
+    var shown = settled(desktopLanding)
+    return Qt.rect(shown.x - monitor.x, shown.y - monitor.y, desktopLanding.width, desktopLanding.height)
   }
 
   // Two things show where a carried window is going. The small picture of it
@@ -1658,7 +1687,10 @@ Item {
 
                   // Not shown on its old card after a drop sends it elsewhere,
                   // while the move is on its way.
-                  visible: placed && root.leavingAddress !== workspaceApps.windowAddress(modelData)
+                  // Nor while its row is carried and a landing box is up for the
+                  // window: the box is where it is going, and one of it is enough.
+                  readonly property bool boxed: !!root.dragTile && !!root.dragTile.listRow && root.landingShown && root.dragTile.modelData === modelData
+                  visible: placed && !boxed && root.leavingAddress !== workspaceApps.windowAddress(modelData)
                   x: placed ? (atX - (root.monitor ? root.monitor.x : 0)) * ratio : 0
                   y: placed ? (atY - (root.monitor ? root.monitor.y : 0)) * ratio : 0
                   width: placed ? Math.max(2, ipc.size[0] * ratio) : 0
@@ -2352,9 +2384,7 @@ Item {
         clip: true
 
         GhostBox {
-          spot: root.desktopLanding && root.monitor
-            ? Qt.rect(root.desktopLanding.x - root.monitor.x, root.desktopLanding.y - root.monitor.y, root.desktopLanding.width, root.desktopLanding.height)
-            : null
+          spot: root.desktopBox
           toplevel: root.dragTile ? root.dragTile.modelData : null
           titleBars: prefs
         }
