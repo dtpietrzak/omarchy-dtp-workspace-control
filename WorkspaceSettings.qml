@@ -16,8 +16,8 @@ Scope {
   // off the left, right and bottom edges, with some of it left showing.
   readonly property bool lockDrops: flag("lockDrops")
   // Where a window's left and top may be on a screen this big, for a drop
-  // there. Its top is never above the top edge either way, where its title bar
-  // would be out of reach.
+  // there. Its top is never above the top edge either way, nor closer to it
+  // than its title bar is tall, so the title bar is always in reach.
   readonly property int keepShowing: 50
   function keepX(left, width, screenWidth) {
     var least = lockDrops ? 0 : keepShowing - width
@@ -25,8 +25,27 @@ Scope {
     return Math.max(least, Math.min(most, left))
   }
   function keepY(top, height, screenHeight) {
-    return Math.max(0, Math.min(lockDrops ? screenHeight - height : screenHeight - keepShowing, top))
+    return Math.max(titleBarHeight, Math.min(lockDrops ? screenHeight - height : screenHeight - keepShowing, top))
   }
+
+  // Not a setting of the plugin's, but one it has to go by: how tall the title
+  // bars the hyprbars plugin puts on windows are, or 0 without it. They sit
+  // above a window, outside the size Hyprland reports for it. Read when asked,
+  // since they can be turned on or off or resized.
+  property int titleBarHeight: 0
+  function readTitleBars() { titleBarReader.running = true }
+  Process {
+    id: titleBarReader
+    command: ["sh", "-c", "hyprctl getoption plugin:hyprbars:enabled -j; hyprctl getoption plugin:hyprbars:bar_height -j"]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var off = /"bool":\s*false/.test(text)
+        var height = /"int":\s*(\d+)/.exec(text)
+        root.titleBarHeight = !off && height ? parseInt(height[1], 10) : 0
+      }
+    }
+  }
+
   readonly property bool barIcons: flag("barIcons")
   readonly property bool hoverCards: flag("hoverCards")
   readonly property bool appsButton: flag("appsButton")

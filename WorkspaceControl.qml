@@ -159,6 +159,7 @@ Item {
     if (!dragTile) toDesktop = false
     if (!dragTile) rowThumb = null
     if (!dragTile) heldAt = null
+    if (!dragTile) dragFromScreen = false
     if (!dragTile) raisedAddress = ""
     followPointer()
     // Let go or put down: a window hidden while it was carried comes back. One
@@ -738,7 +739,8 @@ Item {
   // picked up by. Hyprland draws it above the window and outside the size it
   // reports, so a spot on no window itself is tried again as a title bar.
   function tileAt(x, y) {
-    return windowTileAt(x, y, 0) || (titleBarHeight > 0 ? windowTileAt(x, y, titleBarHeight) : null)
+    var bar = prefs.titleBarHeight
+    return windowTileAt(x, y, 0) || (bar > 0 ? windowTileAt(x, y, bar) : null)
   }
 
   function windowTileAt(x, y, above) {
@@ -761,21 +763,9 @@ Item {
     return best
   }
 
-  // How tall the title bars the hyprbars plugin puts on windows are, or 0
-  // without it. Read each time the panel comes up.
-  property int titleBarHeight: 0
-  onShownChanged: if (shown) titleBarReader.running = true
-  Process {
-    id: titleBarReader
-    command: ["sh", "-c", "hyprctl getoption plugin:hyprbars:enabled -j; hyprctl getoption plugin:hyprbars:bar_height -j"]
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var off = /"bool":\s*false/.test(text)
-        var height = /"int":\s*(\d+)/.exec(text)
-        root.titleBarHeight = !off && height ? parseInt(height[1], 10) : 0
-      }
-    }
-  }
+  // Title bars can have been turned on or off, or resized, since it last came up.
+  onShownChanged: if (shown) prefs.readTitleBars()
+
 
   // grab is the spot on the tile the drag started from, taken when it starts.
   function dragTo(tile, x, y, grab) {
@@ -800,6 +790,9 @@ Item {
   // The mini view a carried row is shown as, while it is over the workspace
   // being shown.
   property Item rowThumb: null
+  // Set for a drag that began on the real window, on the desktop, and not on
+  // its mini view or its row.
+  property bool dragFromScreen: false
 
   // On the desktop itself: above the band, and not on anything of the panel's
   // that floats there.
@@ -814,15 +807,17 @@ Item {
   }
 
   // Where on the screen a window let go of over the desktop goes: centered on
-  // the pointer, whatever spot it was picked up by. Only a floating window has
-  // a spot of its own.
+  // the pointer, whatever spot its mini view or row was picked up by. One
+  // picked up by the real window stays held by that spot of it, as a window
+  // dragged about the screen is. Only a floating window has a spot of its own.
   function desktopSpot(tile) {
     var toplevel = tile ? tile.modelData : null
     var ipc = toplevel && toplevel.lastIpcObject ? toplevel.lastIpcObject : null
     if (!monitor || !ipc || !ipc.floating || !ipc.size || sw <= 0) return null
     var width = ipc.size[0], height = ipc.size[1]
-    var left = dragPos.x - width / 2
-    var top = dragPos.y - height / 2
+    var ratio = root.cardW / sw
+    var left = dragFromScreen ? dragPos.x - dragGrab.x / ratio : dragPos.x - width / 2
+    var top = dragFromScreen ? dragPos.y - dragGrab.y / ratio : dragPos.y - height / 2
     return {
       address: workspaceApps.windowAddress(toplevel),
       x: Math.round(monitor.x + prefs.keepX(left, width, sw)),
@@ -1471,6 +1466,7 @@ Item {
             ? Qt.point((pressPoint.x + root.monitor.x - tile.ipc.at[0]) * tile.ratio,
                        (pressPoint.y + root.monitor.y - tile.ipc.at[1]) * tile.ratio)
             : null
+          root.dragFromScreen = true
           root.dragTo(tile, mouse.x, mouse.y, grab)
         }
         onReleased: {

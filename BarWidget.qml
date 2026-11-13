@@ -445,6 +445,8 @@ BarWidget {
   }
   onPeekDragItemChanged: {
     if (peekDragItem) {
+      // For where a drop on the desktop may put a window.
+      prefs.readTitleBars()
       peekShrink.stop()
       peekDragScale = 1
       followPeekScale()
