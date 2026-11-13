@@ -855,13 +855,16 @@ Item {
     var ipc = spot ? dragTile.modelData.lastIpcObject : null
     if (!spot || !ipc || !ipc.size) return null
     var ratio = root.cardW / sw
-    var at = card.mapToItem(panel.contentItem, (spot.x - monitor.x) * ratio, (spot.y - monitor.y) * ratio)
-    return Qt.rect(at.x, at.y, ipc.size[0] * ratio, ipc.size[1] * ratio)
+    var width = ipc.size[0] * ratio, height = ipc.size[1] * ratio
+    var at = card.mapToItem(panel.contentItem, onCardX((spot.x - monitor.x) * ratio, width), onCardY((spot.y - monitor.y) * ratio, height))
+    return Qt.rect(at.x, at.y, width, height)
   }
 
-  // Where a mini view is drawn on its card, from where its window is.
-  function onCardX(x, width) { return prefs.lockDrops ? Math.max(0, Math.min(cardW - width, x)) : x }
-  function onCardY(y, height) { return prefs.lockDrops ? Math.max(0, Math.min(cardH - height, y)) : y }
+  // Where a mini view is drawn on its card, from where its window is or
+  // would be: always wholly on the card. Only the window itself, and the
+  // landing box on the screen, go past the edges a drop may go past.
+  function onCardX(x, width) { return Math.max(0, Math.min(cardW - width, x)) }
+  function onCardY(y, height) { return Math.max(0, Math.min(cardH - height, y)) }
 
   function cardFor(id) {
     for (var i = 0; i < cards.children.length; i++) {
@@ -927,7 +930,7 @@ Item {
     }
     // The mini view stops where its window does: held on its card at the
     // spot the window is kept to, however far past that the pointer goes.
-    var held = card.mapToItem(panel.contentItem, (carried.x - monitor.x) * tile.ratio, (carried.y - monitor.y) * tile.ratio)
+    var held = card.mapToItem(panel.contentItem, onCardX((carried.x - monitor.x) * tile.ratio, tile.width), onCardY((carried.y - monitor.y) * tile.ratio, tile.height))
     heldAt = Qt.point(held.x, held.y)
     if (!carryTimer.running) carryTimer.start()
   }
@@ -1714,9 +1717,8 @@ Item {
                   // Not shown on its old card after a drop sends it elsewhere,
                   // while the move is on its way.
                   visible: placed && root.leavingAddress !== workspaceApps.windowAddress(modelData)
-                  // With drops locked to the screen, a mini view is drawn wholly
-                  // on its card even when its window hangs off the screen, as one
-                  // dragged about the screen by the window itself can.
+                  // Drawn wholly on its card even when its window hangs off the
+                  // screen, as one dropped with drops not locked to it can.
                   x: placed ? root.onCardX((atX - (root.monitor ? root.monitor.x : 0)) * ratio, width) : 0
                   y: placed ? root.onCardY((atY - (root.monitor ? root.monitor.y : 0)) * ratio, height) : 0
                   width: placed ? Math.max(2, ipc.size[0] * ratio) : 0

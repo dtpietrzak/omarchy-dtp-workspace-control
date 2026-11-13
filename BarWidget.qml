@@ -640,7 +640,6 @@ BarWidget {
         sourceComponent: WorkspacePeek {
           workspaceId: root.peekId
           previewOnTop: peek.previewOnTop
-          lockToScreen: prefs.lockDrops
           dragSpace: peek.contentItem
           monitor: root.monitor
           screenWidth: peek.screenWidth
