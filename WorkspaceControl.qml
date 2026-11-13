@@ -1081,6 +1081,9 @@ Item {
     var target = hoverId
     var onDesktop = !!tile && overDesktop(dragPos.x, dragPos.y)
     var asThumb = !!rowThumb
+    // Worked out while the drag is still on: letting go of it forgets how the
+    // window was picked up, which decides where it is held by.
+    var deskSpot = tile ? desktopSpot(tile) : null
     dragTile = null
     hoverId = -1
     var ownCard = dragCardAt(tile, dragPos.x, dragPos.y)
@@ -1088,7 +1091,7 @@ Item {
       // Let go of on its own workspace, a floating window goes to that spot:
       // a row on its card, and a row or a mini view on the desktop itself. A
       // mini view over its own card has carried the window there already.
-      var ownSpot = ownCard ? dropSpot(tile, ownCard) : desktopSpot(tile)
+      var ownSpot = ownCard ? dropSpot(tile, ownCard) : deskSpot
       if (ownSpot) {
         // In place, not sliding there from where it was.
         workspaceApps.holdStill(ownSpot.address)
@@ -1108,7 +1111,7 @@ Item {
       // Let go of over the desktop, it lands on the card of the workspace
       // being shown, at the spot the window goes to on the screen.
       var landCard = dropCard || cardFor(target)
-      var spot = dropCard ? dropSpot(tile, dropCard) : desktopSpot(tile)
+      var spot = dropCard ? dropSpot(tile, dropCard) : deskSpot
       var carriedRect = Qt.rect(dragPos.x - held.x * dragScale, dragPos.y - held.y * dragScale, tile.width * dragScale, tile.height * dragScale)
       var landRect = Qt.rect(dragPos.x - held.x, dragPos.y - held.y, tile.width, tile.height)
       var ipc = tile.modelData ? tile.modelData.lastIpcObject : null
