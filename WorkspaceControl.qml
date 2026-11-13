@@ -784,6 +784,8 @@ Item {
   property bool minimizedToDesktop: false
   // A landing box is up for what is being carried, on the screen or on a card.
   readonly property bool landingShown: !!desktopLanding || !!cardLanding
+  // The row being carried is over another workspace than its own.
+  readonly property bool rowAway: !!dragTile && !!dragTile.listRow && hoverId > 0 && hoverId !== dragTile.wsId
   // The row being carried is still in its list: a box is up, and on the
   // row's own workspace.
   readonly property bool rowStays: !!dragTile && !!dragTile.listRow && landingShown && hoverId === dragTile.wsId
@@ -2152,9 +2154,12 @@ Item {
         readonly property real restLeft: Math.max(edge, Math.min(root.sw - restWidth - edge, cardCenter - restWidth / 2))
 
         // Rising out of the band as it appears, and sinking back as it goes.
-        property real shownAmount: wanted ? 1 : 0
+        // Sunk away while one of its rows is carried over another workspace:
+        // the window is leaving this list. Back up if the row is brought back.
+        readonly property bool up: wanted && !root.rowAway
+        property real shownAmount: up ? 1 : 0
         Behavior on shownAmount {
-          NumberAnimation { duration: Style.duration(windowList.wanted ? 200 : 140); easing.type: Easing.OutCubic }
+          NumberAnimation { duration: Style.duration(windowList.up ? 200 : 140); easing.type: Easing.OutCubic }
         }
         // As tall as its rows, kept while it sinks away with none left to show.
         property real fullHeight: rows.implicitHeight + edge
@@ -2224,7 +2229,9 @@ Item {
 
         NumberAnimation { id: listSlide; target: windowList; property: "travelT"; from: 0; to: 1 }
 
-        visible: shownAmount > 0.001
+        // Sunk for a row that is away, it is still here, unseen: the row is
+        // what holds the drag, which would end if the row were not shown.
+        visible: shownAmount > 0.001 || root.rowAway
         x: travelDir > 0 ? trailEdge : leadEdge
         width: Math.abs(leadEdge - trailEdge)
         height: fullHeight * shownAmount
