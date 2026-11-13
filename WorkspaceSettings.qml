@@ -34,11 +34,6 @@ Scope {
   // asked, since they can be turned on or off or restyled.
   property int titleBarHeight: 0
   property color titleBarColor: "transparent"
-  property color titleBarTextColor: "white"
-  property int titleBarTextSize: 10
-  property string titleBarTextAlign: "center"
-  property string titleBarFont: ""
-  property int titleBarPadding: 0
   function readTitleBars() { titleBarReader.running = true }
 
   // Hyprland gives a color as one number, alpha first.
@@ -48,7 +43,7 @@ Scope {
 
   Process {
     id: titleBarReader
-    command: ["sh", "-c", 'for o in enabled bar_height bar_color col.text bar_text_size bar_text_align bar_text_font bar_padding; do hyprctl getoption "plugin:hyprbars:$o" -j | tr -d "\n"; echo; done']
+    command: ["sh", "-c", 'for o in enabled bar_height bar_color; do hyprctl getoption "plugin:hyprbars:$o" -j | tr -d "\n"; echo; done']
     stdout: StdioCollector {
       onStreamFinished: {
         // One line for each option, and not JSON for one that isn't there.
@@ -58,16 +53,11 @@ Scope {
           try {
             var entry = JSON.parse(lines[i])
             var name = String(entry.option).replace("plugin:hyprbars:", "")
-            found[name] = entry["int"] !== undefined ? entry["int"] : entry["str"] !== undefined ? entry["str"] : entry["bool"]
+            found[name] = entry["int"] !== undefined ? entry["int"] : entry["bool"]
           } catch (e) {}
         }
         root.titleBarHeight = found.enabled !== false && found.bar_height > 0 ? found.bar_height : 0
         if (found.bar_color !== undefined) root.titleBarColor = root.colorOf(found.bar_color)
-        if (found["col.text"] !== undefined) root.titleBarTextColor = root.colorOf(found["col.text"])
-        if (found.bar_text_size > 0) root.titleBarTextSize = found.bar_text_size
-        if (found.bar_text_align !== undefined) root.titleBarTextAlign = String(found.bar_text_align)
-        if (found.bar_text_font !== undefined) root.titleBarFont = String(found.bar_text_font)
-        if (found.bar_padding !== undefined) root.titleBarPadding = found.bar_padding
       }
     }
   }

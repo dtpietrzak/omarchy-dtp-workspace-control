@@ -15,7 +15,7 @@ Item {
   property var spot: null
   property var toplevel: null
   // The settings, for a box that shows the title bar hyprbars would put on
-  // the window: above it, as tall and in the colors it is set to. Left out
+  // the window: above it, as tall and in the color it is set to. Left out
   // for a box with none, as on a card.
   property var titleBars: null
   readonly property int barHeight: titleBars ? titleBars.titleBarHeight : 0
@@ -44,8 +44,8 @@ Item {
     }
   }
 
-  // As faint as the window under it. Without the buttons, which Hyprland
-  // has no way to ask after.
+  // As faint as the window under it, and blank: whoever is dragging the
+  // window knows which one it is.
   Rectangle {
     visible: box.barHeight > 0
     y: -box.barHeight
@@ -55,21 +55,6 @@ Item {
     topRightRadius: outline.radius
     color: box.titleBars ? box.titleBars.titleBarColor : "transparent"
     opacity: 0.5
-
-    Text {
-      readonly property int inset: box.titleBars ? box.titleBars.titleBarPadding : 0
-      anchors.fill: parent
-      anchors.leftMargin: inset
-      anchors.rightMargin: inset
-      verticalAlignment: Text.AlignVCenter
-      horizontalAlignment: box.titleBars && box.titleBars.titleBarTextAlign === "left" ? Text.AlignLeft : Text.AlignHCenter
-      elide: Text.ElideRight
-      textFormat: Text.PlainText
-      text: box.toplevel && box.toplevel.title ? box.toplevel.title : ""
-      color: box.titleBars ? box.titleBars.titleBarTextColor : "white"
-      font.family: box.titleBars && box.titleBars.titleBarFont !== "" ? box.titleBars.titleBarFont : Style.font.family
-      font.pointSize: box.titleBars ? Math.max(1, box.titleBars.titleBarTextSize) : 10
-    }
   }
 
   // Drawn apart so it stays thin and solid over the picture. Around the title
