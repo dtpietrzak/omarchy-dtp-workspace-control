@@ -860,8 +860,8 @@ Item {
   }
 
   // Two things show where a carried window is going. The small picture of it
-  // under the pointer says which workspace: it is kept wholly inside that
-  // workspace's card, or on the screen when it is over the desktop. The
+  // under the pointer says which workspace: it is held to that workspace's
+  // card, or to the screen when it is over the desktop, giving a little. The
   // landing box says exactly where: it goes wherever the window would,
   // past the edges too when a drop may.
   function onCardX(x, width) { return Math.max(0, Math.min(cardW - width, x)) }
@@ -879,15 +879,26 @@ Item {
     }
     return overDesktop(dragPos.x, dragPos.y) ? Qt.rect(0, 0, sw, band.y) : null
   }
-  // How far the carried mini view is moved off the pointer to stay inside it,
-  // at the size it is carried at.
+  // How far the carried mini view is moved off the pointer to stay with it,
+  // at the size it is carried at. Wholly inside, it is exactly under the
+  // pointer. Past an edge it is held back as if on elastic: it still follows
+  // the pointer out, less and less the further that goes, and never by more
+  // than carryGive of its own size. So it shows the workspace it is going to
+  // and still moves with the hand.
+  readonly property real carryGive: 0.6
+  function elastic(free, least, most, size) {
+    var kept = Math.max(least, Math.min(most, free))
+    var past = free - kept
+    var reach = Math.max(1, size * carryGive)
+    return kept + (past < 0 ? -1 : 1) * reach * (1 - 1 / (Math.abs(past) * 0.55 / reach + 1))
+  }
   readonly property point carryNudge: {
     var area = carryArea
     if (!area || !dragTile) return Qt.point(0, 0)
     var width = dragTile.width * dragScale, height = dragTile.height * dragScale
     var left = dragPos.x - dragGrab.x * dragScale, top = dragPos.y - dragGrab.y * dragScale
-    return Qt.point(Math.max(area.x, Math.min(area.x + area.width - width, left)) - left,
-                    Math.max(area.y, Math.min(area.y + area.height - height, top)) - top)
+    return Qt.point(elastic(left, area.x, area.x + area.width - width, width) - left,
+                    elastic(top, area.y, area.y + area.height - height, height) - top)
   }
 
   function cardFor(id) {
