@@ -2230,8 +2230,10 @@ Item {
         NumberAnimation { id: listSlide; target: windowList; property: "travelT"; from: 0; to: 1 }
 
         // Sunk for a row that is away, it is still here, unseen: the row is
-        // what holds the drag, which would end if the row were not shown.
-        visible: shownAmount > 0.001 || root.rowAway
+        // what holds the drag, which would end if the row were not shown. For
+        // the whole of a row's drag, so it is there the moment the row is
+        // brought back, before it has risen.
+        visible: shownAmount > 0.001 || (!!root.dragTile && !!root.dragTile.listRow)
         x: travelDir > 0 ? trailEdge : leadEdge
         width: Math.abs(leadEdge - trailEdge)
         height: fullHeight * shownAmount
