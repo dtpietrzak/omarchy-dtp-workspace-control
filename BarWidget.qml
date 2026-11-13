@@ -461,7 +461,9 @@ BarWidget {
   onPeekOverPreviewChanged: followPeekScale()
   function followPeekScale() {
     if (!peekDragItem) return
-    var to = peekOverPreview || peekOverDesktop ? 1 : peekDragItem.dragScale
+    // A row's copy keeps its carried size over the desktop: it is about to
+    // give way to the box there, not to stand for the window.
+    var to = peekOverPreview || (peekOverDesktop && !peekRowDrag) ? 1 : peekDragItem.dragScale
     if (peekShrink.to === to && (peekShrink.running || peekDragScale === to)) return
     peekShrink.stop()
     peekShrink.from = peekDragScale
@@ -506,6 +508,19 @@ BarWidget {
       height: height
     }
   }
+  // A row from the hover card's list is what is being dragged.
+  readonly property bool peekRowDrag: !!peekDragItem && !!peekContent.item && dragSource === peekContent.item && peekDragItem.client === undefined
+  // How far a row's copy has given way to the landing box on the screen, 0 to
+  // 1. The box is centered on the pointer but can't go above the top of the
+  // screen, so it sits still there until the pointer is half its height
+  // down. Over that stretch the copy shrinks and fades, so the pull downward
+  // shows, and it is gone as the box starts to move.
+  readonly property real peekHandover: {
+    if (!peekRowDrag || !peekOverDesktop || !peekLanding) return 0
+    var stretch = peekLanding.height / 2 + prefs.titleBarHeight
+    return stretch > 0 ? Math.max(0, Math.min(1, peekDragPos.y / stretch)) : 1
+  }
+
   // That spot for the window being carried there now, which is outlined. One
   // carried from another workspace onto the number of the workspace being
   // shown is outlined too, where it is, which is where it would turn up.
@@ -654,7 +669,7 @@ BarWidget {
             root.dropTargetId = root.workspaceAt(x, y)
             root.peekOverDesktop = root.dropTargetId < 0 && root.overDesktop(x, y, card)
             peekContent.item.setAway(!root.peekOverDesktop && !root.onCard(x, y, card),
-              root.peekId === root.activeId && !!root.peekLanding, root.peekOverDesktop)
+              root.peekId === root.activeId && !!root.peekLanding)
           }
           onDragDropped: function(toplevel, fromId) {
             var target = root.dropTargetId
@@ -700,12 +715,16 @@ BarWidget {
 
     // The window under the cursor while it is being dragged.
     DragGhost {
-      // A row is carried as its window's thumbnail over the preview and the
-      // desktop, which the card works out.
+      // A row is carried as its window's thumbnail over the preview, which
+      // the card works out, and as a copy of itself anywhere else.
       source: peekContent.item && root.dragSource === peekContent.item ? peekContent.item.ghostItem : null
       position: root.peekDragPos
       grab: peekContent.item ? peekContent.item.ghostGrab : Qt.point(0, 0)
-      itemScale: root.peekDragScale
+      // A row stays in its list, so only a thumbnail is hidden while carried.
+      keepSource: root.peekRowDrag
+      // Down to half its carried size, fading, as it gives way to the box.
+      itemScale: root.peekDragScale * (1 - 0.5 * root.peekHandover)
+      fade: root.peekHandover
       bounds: root.peekOverPreview ? peekContent.item.previewArea : Qt.rect(0, 0, 0, 0)
     }
   }

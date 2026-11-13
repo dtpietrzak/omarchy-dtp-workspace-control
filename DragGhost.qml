@@ -12,6 +12,12 @@ Item {
   property point position: Qt.point(0, 0)
   property point grab: Qt.point(0, 0)
   property real itemScale: 1
+  // The item stays where it is while this copy of it is carried. Otherwise it
+  // is hidden for as long as it is.
+  property bool keepSource: false
+  // How far the copy has given way to something else that shows where the
+  // item is going, 0 to 1. It fades out as it does.
+  property real fade: 0
   // How far it has shrunk toward its dragging size, 0 to 1. At full size it is
   // solid, since it stands for the real window; it turns see-through only as
   // it shrinks.
@@ -58,7 +64,7 @@ Item {
 
   ShaderEffectSource {
     sourceItem: ghost.source
-    hideSource: true
+    hideSource: !ghost.keepSource
     width: ghost.source ? ghost.source.width : 0
     height: ghost.source ? ghost.source.height : 0
     x: ghost.position.x - ghost.grab.x + ghost.offsetX
@@ -66,7 +72,7 @@ Item {
     // Small and see-through, so the workspace it's over can be seen. It shrinks
     // toward the spot it was picked up by, which stays under the pointer. Just
     // under 30%, because Hyprland blurs behind anything above that on glassy.
-    opacity: 1 - (1 - 0.29) * ghost.shrunk
+    opacity: (1 - (1 - 0.29) * ghost.shrunk) * (1 - ghost.fade)
     transform: Scale {
       origin.x: ghost.grab.x
       origin.y: ghost.grab.y
@@ -85,5 +91,6 @@ Item {
     color: "transparent"
     border.width: 1
     border.color: Commons.Color.accent
+    opacity: 1 - ghost.fade
   }
 }

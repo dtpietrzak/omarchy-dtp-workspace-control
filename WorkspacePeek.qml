@@ -54,7 +54,6 @@ Item {
     dragDropped(item.modelData, workspaceId)
     dragItem = null
     overPreview = false
-    onDesktop = false
     // Sent to another workspace, it stays hidden until it is there.
     if (dropMoves) rowHider.showAfterMove()
     else rowHider.show()
@@ -68,7 +67,6 @@ Item {
     dragCanceled()
     dragItem = null
     overPreview = false
-    onDesktop = false
     rowHider.show()
   }
 
@@ -96,13 +94,13 @@ Item {
     return null
   }
 
-  // A row carried over the preview, or out over the desktop, is carried as
-  // its window's thumbnail, held by its middle, and from there on acts the
-  // same as if the thumbnail had been picked up.
-  property bool onDesktop: false
+  // A row carried over the preview is carried as its window's thumbnail,
+  // held by its middle, and there acts the same as if the thumbnail had been
+  // picked up. Anywhere else a copy of the row is what is carried. The row
+  // itself never leaves the list: it stays in its place, faint.
   readonly property Item ghostItem: {
     var item = dragItem
-    if (!item || item.client !== undefined || (!overPreview && !onDesktop)) return item
+    if (!item || item.client !== undefined || !overPreview) return item
     var tile = tileOf(item.modelData)
     return tile && tile.placed ? tile : item
   }
@@ -137,9 +135,8 @@ Item {
   // go. Over the card, where letting go leaves it be, it stays. boxed is while
   // a landing box on the screen stands in for a window that is on it, a
   // thumbnail's as much as a row's, which leaves the screen for that too.
-  function setAway(away, boxed, overDesktop) {
+  function setAway(away, boxed) {
     if (!dragItem) return
-    onDesktop = overDesktop
     var isRow = dragItem.client === undefined
     if (boxed || (isRow && away)) rowHider.hide(workspaceApps.windowAddress(dragItem.modelData))
     else rowHider.show()
@@ -401,8 +398,9 @@ Item {
 
           Component.onDestruction: root.cancelDrag(row)
 
-          // Out of the list while it is carried as its window's thumbnail.
-          opacity: root.dragItem === row && root.ghostItem !== row ? 0 : 1
+          // Faint while it is being dragged: it stays in its place, and a
+          // copy of it, or its window's thumbnail, is what is carried.
+          opacity: root.dragItem === row ? 0.5 : 1
           width: parent ? parent.width : 0
           height: Math.max(root.iconSize, title.implicitHeight) + root.edge
 
