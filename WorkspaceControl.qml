@@ -733,8 +733,15 @@ Item {
     return card.contains(point) ? card : null
   }
 
-  // The mini view of the topmost real window at this screen position.
+  // The mini view of the topmost real window at this screen position. A
+  // window's title bar counts as the window: it is where a window is usually
+  // picked up by. Hyprland draws it above the window and outside the size it
+  // reports, so a spot on no window itself is tried again as a title bar.
   function tileAt(x, y) {
+    return windowTileAt(x, y, 0) || (titleBarHeight > 0 ? windowTileAt(x, y, titleBarHeight) : null)
+  }
+
+  function windowTileAt(x, y, above) {
     if (!monitor) return null
     var px = x + monitor.x
     var py = y + monitor.y
@@ -747,11 +754,27 @@ Item {
         if (!tile || !tile.placed) continue
         var at = tile.ipc.at
         var size = tile.ipc.size
-        if (px < at[0] || py < at[1] || px >= at[0] + size[0] || py >= at[1] + size[1]) continue
+        if (px < at[0] || py < at[1] - above || px >= at[0] + size[0] || py >= at[1] + size[1]) continue
         if (!best || tile.z > best.z) best = tile
       }
     }
     return best
+  }
+
+  // How tall the title bars the hyprbars plugin puts on windows are, or 0
+  // without it. Read each time the panel comes up.
+  property int titleBarHeight: 0
+  onShownChanged: if (shown) titleBarReader.running = true
+  Process {
+    id: titleBarReader
+    command: ["sh", "-c", "hyprctl getoption plugin:hyprbars:enabled -j; hyprctl getoption plugin:hyprbars:bar_height -j"]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var off = /"bool":\s*false/.test(text)
+        var height = /"int":\s*(\d+)/.exec(text)
+        root.titleBarHeight = !off && height ? parseInt(height[1], 10) : 0
+      }
+    }
   }
 
   // grab is the spot on the tile the drag started from, taken when it starts.
