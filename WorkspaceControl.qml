@@ -820,8 +820,8 @@ Item {
     var top = dragFromScreen ? dragPos.y - dragGrab.y / ratio : dragPos.y - height / 2
     return {
       address: workspaceApps.windowAddress(toplevel),
-      x: Math.round(monitor.x + prefs.keepX(left, width, sw)),
-      y: Math.round(monitor.y + prefs.keepY(top, height, sh)),
+      x: Math.round(monitor.x + prefs.keepX(left, width, sw, dragFromScreen)),
+      y: Math.round(monitor.y + prefs.keepY(top, height, sh, dragFromScreen)),
       width: width,
       height: height
     }

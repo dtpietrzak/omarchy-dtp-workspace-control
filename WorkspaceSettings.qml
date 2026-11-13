@@ -19,13 +19,17 @@ Scope {
   // there. Its top is never above the top edge either way, nor closer to it
   // than its title bar is tall, so the title bar is always in reach.
   readonly property int keepShowing: 50
-  function keepX(left, width, screenWidth) {
-    var least = lockDrops ? 0 : keepShowing - width
-    var most = lockDrops ? screenWidth - width : screenWidth - keepShowing
+  // free is for a window dragged about the screen by the real window, which
+  // is never held wholly on it, whatever the setting: that is how a window
+  // dragged about the screen always goes.
+  function keepX(left, width, screenWidth, free) {
+    var whole = lockDrops && !free
+    var least = whole ? 0 : keepShowing - width
+    var most = whole ? screenWidth - width : screenWidth - keepShowing
     return Math.max(least, Math.min(most, left))
   }
-  function keepY(top, height, screenHeight) {
-    return Math.max(titleBarHeight, Math.min(lockDrops ? screenHeight - height : screenHeight - keepShowing, top))
+  function keepY(top, height, screenHeight, free) {
+    return Math.max(titleBarHeight, Math.min(lockDrops && !free ? screenHeight - height : screenHeight - keepShowing, top))
   }
 
   // Not settings of the plugin's, but ones it has to go by: the title bars
