@@ -64,6 +64,12 @@ QtObject {
     Hyprland.dispatch('hl.dsp.window.alter_zorder({ mode = "top", window = "address:' + address + '" })')
   }
 
+  // Put a window on top of the others on its workspace, without focusing it.
+  function raiseWindow(toplevel) {
+    var address = windowAddress(toplevel)
+    if (address !== "") Hyprland.dispatch('hl.dsp.window.alter_zorder({ mode = "top", window = "address:' + address + '" })')
+  }
+
   // Ask a window to close, the same as the × in its title bar.
   function closeWindow(toplevel) {
     var address = windowAddress(toplevel)
@@ -85,10 +91,18 @@ QtObject {
   function restoreWindow(toplevel, id) {
     var address = windowAddress(toplevel)
     if (address === "" || id < 1) return
+    holdStill(address)
+    Hyprland.dispatch('hl.dsp.window.move({ workspace = "' + id + '", follow = false, window = "address:' + address + '" })')
+    focusAddress(address)
+  }
+
+  // Turns a window's animations off for a moment, so that what is done to it
+  // next happens in place: it turns up where it is put, and doesn't slide
+  // there from where it was.
+  function holdStill(address) {
+    if (address === "") return
     var target = 'window = "address:' + address + '"'
     Hyprland.dispatch('hl.dsp.window.set_prop({ prop = "no_anim", value = "1", ' + target + ' })')
-    Hyprland.dispatch('hl.dsp.window.move({ workspace = "' + id + '", follow = false, ' + target + ' })')
-    focusAddress(address)
     Quickshell.execDetached(["sh", "-c", 'sleep 0.4; exec hyprctl dispatch "$1"', "sh",
       'hl.dsp.window.set_prop({ prop = "no_anim", value = "unset", ' + target + ' })'])
   }

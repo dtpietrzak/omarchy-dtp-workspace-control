@@ -45,8 +45,8 @@ The swipe stays registered, doing nothing, until Hyprland next reloads. If you t
 - Right-click any of the widget's buttons for a menu of Settings, Workspace Panel and App List, each with its shortcut beside it.
 - A number for each workspace, 1 to 7 plus any others that are open, with the icons of the apps on it, one per app. A grey line runs under a workspace with apps, and the current one is underlined in the theme's accent color.
 - Click a number or its icons to go to that workspace. Drag a number along the bar to move that workspace: its windows take the new position's number and those it passed shift over by one.
-- Hover a workspace with windows for a card with a live preview and a list of its windows. Click a window in either to go to it, use its × to close it, or drag it onto a number to move it there without leaving where you are.
-- The ... after the last number lists minimized windows. Click one or its ^ to bring it to the workspace you're on, use its × to close it, or drag it onto a number to send it there.
+- Hover a workspace with windows for a card with a live preview and a list of its windows. Click a window in either to go to it, use its × to close it, or drag it onto a number to move it there without leaving where you are. Drag it out onto the desktop to bring it to the workspace you're on; a floating window lands where you let go, shown by an outline as you carry it.
+- The ... after the last number lists minimized windows. Click one or its ^ to bring it to the workspace you're on, use its × to close it, drag it onto a number to send it there, or drag it out onto the desktop to bring it to the workspace you're on.
 
 ## In the panel
 
@@ -59,6 +59,9 @@ A four finger swipe up pulls up a band of workspaces with a live mini view of ea
 - Left and right move to the previous or next workspace, the same step as Super+Shift+Left and Right, and the search field gives up the keyboard. The window list follows, unless the pointer is over a thumbnail. Up and down then cycle its windows, and Enter focuses the highlighted one. Escape closes the panel. A letter puts the keyboard back in the search and types that letter.
 - Click a workspace to jump to it. Click a window's mini view to also focus it and bring it to the front.
 - Drag a window, by its mini view or the real window above the band, onto another workspace to move it there.
+- Drag a window, by its mini view or its row in the list, up onto the desktop to bring it to the workspace you're on. A floating window lands where you let go, shown by an outline with the window faintly inside as you carry it.
+- Drag a floating window onto another workspace, by its mini view or its row in the list, and an outline shows where it will land there. A row can be dropped on its own workspace the same way, and turns into its window's mini view while it is over the workspace you're on.
+- A window you drop on a workspace or the desktop becomes the top window there.
 - Drag a workspace's number and icons along the row to move it.
 - The gear above the first workspace opens the settings, and the ... above the last one lists minimized windows.
 - Click a workspace's number to jump to it. Number keys type into the search field.
@@ -71,6 +74,7 @@ The band follows the bar's `omarchy bar background` setting: opaque, glassy with
 Right-click any of the widget's buttons and choose Settings, or use the gear in the panel:
 
 - How many workspaces are always shown on the bar and in the panel.
+- Lock drops to screen: a window you drop is kept wholly on the screen. Turned off, it can hang off the left, right or bottom edge, with at least 50 pixels of it still showing; its top never goes above the top of the screen.
 - App icons on the bar.
 - Workspace previews on hover.
 - The app list, workspace panel and minimized windows buttons. With the panel button hidden, open the panel with Super+E or the swipe; with both the app list and panel buttons hidden, reach Settings from the gear in the panel.

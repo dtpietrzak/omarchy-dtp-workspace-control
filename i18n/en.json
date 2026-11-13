@@ -31,6 +31,7 @@
   "settings.section.shortcuts": "Shortcuts",
   "settings.count.bar": "Shown on the bar",
   "settings.count.panel": "Shown in the panel",
+  "settings.lockDrops": "Lock drops to screen",
   "settings.section.line": "Workspace Line",
   "settings.linePosition": "Line",
   "settings.linePosition.under": "Under",

@@ -37,12 +37,7 @@ Item {
     var dx = mouse.x - pressPoint.x
     var dy = mouse.y - pressPoint.y
     if (dragItem !== item && dx * dx + dy * dy < 36) return
-    if (dragItem !== item) {
-      grabPoint = pressPoint
-      // A row picked up takes its window off the screen, and its thumbnail out
-      // of the preview, until it is put down.
-      if (item.client === undefined) rowHider.hide(workspaceApps.windowAddress(item.modelData))
-    }
+    if (dragItem !== item) grabPoint = pressPoint
     // Before the drag is taken up, so a thumbnail picked up over the preview
     // never starts to shrink.
     carry(area, item, mouse)
@@ -59,6 +54,7 @@ Item {
     dragDropped(item.modelData, workspaceId)
     dragItem = null
     overPreview = false
+    onDesktop = false
     // Sent to another workspace, it stays hidden until it is there.
     if (dropMoves) rowHider.showAfterMove()
     else rowHider.show()
@@ -72,6 +68,7 @@ Item {
     dragCanceled()
     dragItem = null
     overPreview = false
+    onDesktop = false
     rowHider.show()
   }
 
@@ -86,8 +83,34 @@ Item {
   property var carried: null
   property var lastCarried: null
 
+  // Hyprland's record of the window a thumbnail or a row is for, and that
+  // window's thumbnail.
+  function clientOf(item) {
+    return item.client !== undefined ? item.client : (clients[workspaceApps.windowAddress(item.modelData)] || null)
+  }
+  function tileOf(toplevel) {
+    for (var i = 0; i < tiles.count; i++) {
+      var tile = tiles.itemAt(i)
+      if (tile && tile.modelData === toplevel) return tile
+    }
+    return null
+  }
+
+  // A row carried over the preview, or out over the desktop, is carried as
+  // its window's thumbnail, held by its middle, and from there on acts the
+  // same as if the thumbnail had been picked up.
+  property bool onDesktop: false
+  readonly property Item ghostItem: {
+    var item = dragItem
+    if (!item || item.client !== undefined || (!overPreview && !onDesktop)) return item
+    var tile = tileOf(item.modelData)
+    return tile && tile.placed ? tile : item
+  }
+  readonly property point ghostGrab: ghostItem && ghostItem !== dragItem
+    ? Qt.point(ghostItem.width / 2, ghostItem.height / 2) : grabPoint
+
   function carry(area, item, mouse) {
-    var client = item.client
+    var client = clientOf(item)
     var inPreview = area.mapToItem(preview, mouse.x, mouse.y)
     var inside = inPreview.x >= 0 && inPreview.y >= 0 && inPreview.x <= preview.width && inPreview.y <= preview.height
     overPreview = inside && !!client && !!client.floating && !!monitor && preview.ratio > 0
@@ -95,12 +118,41 @@ Item {
     var corner = preview.mapToItem(dragSpace, 0, 0)
     previewArea = Qt.rect(corner.x, corner.y, preview.width, preview.height)
     var width = client.size[0], height = client.size[1]
+    // A thumbnail by the spot it was picked up by, a row by its window's middle.
+    var isRow = item.client === undefined
+    var heldX = isRow ? width * preview.ratio / 2 : grabPoint.x
+    var heldY = isRow ? height * preview.ratio / 2 : grabPoint.y
+    raiseCarried(workspaceApps.windowAddress(item.modelData))
     carried = {
       address: workspaceApps.windowAddress(item.modelData),
-      x: Math.round(monitor.x + Math.max(0, Math.min(screenWidth - width, (inPreview.x - grabPoint.x) / preview.ratio))),
-      y: Math.round(monitor.y + Math.max(0, Math.min(screenHeight - height, (inPreview.y - grabPoint.y) / preview.ratio)))
+      x: Math.round(monitor.x + Math.max(0, Math.min(screenWidth - width, (inPreview.x - heldX) / preview.ratio))),
+      y: Math.round(monitor.y + Math.max(0, Math.min(screenHeight - height, (inPreview.y - heldY) / preview.ratio)))
     }
     if (!carryTimer.running) carryTimer.start()
+  }
+
+  // Where the drag is, as only whoever owns the card can tell. away is off
+  // the card and onto the bar, headed for another workspace: there a row's
+  // window leaves the screen, and its thumbnail the preview, to show it would
+  // go. Over the card, where letting go leaves it be, it stays. boxed is while
+  // a landing box on the screen stands in for a window that is on it, a
+  // thumbnail's as much as a row's, which leaves the screen for that too.
+  function setAway(away, boxed, overDesktop) {
+    if (!dragItem) return
+    onDesktop = overDesktop
+    var isRow = dragItem.client === undefined
+    if (boxed || (isRow && away)) rowHider.hide(workspaceApps.windowAddress(dragItem.modelData))
+    else rowHider.show()
+  }
+
+  // A real window being carried is above every other window from the moment
+  // it first moves, as it will be once it is let go. Once for each drag.
+  property string raisedAddress: ""
+  onDragItemChanged: if (!dragItem) raisedAddress = ""
+  function raiseCarried(address) {
+    if (address === "" || address === raisedAddress) return
+    raisedAddress = address
+    Hyprland.dispatch('hl.dsp.window.alter_zorder({ mode = "top", window = "address:' + address + '" })')
   }
 
   function sendCarried() {
@@ -116,8 +168,9 @@ Item {
   function settleCarried(item) {
     carryTimer.stop()
     sendCarried()
-    if (lastCarried && item.client !== undefined && lastCarried.address === workspaceApps.windowAddress(item.modelData))
-      item.movedTo = Qt.point(lastCarried.x, lastCarried.y)
+    var moved = item.client !== undefined ? item : tileOf(item.modelData)
+    if (lastCarried && moved && lastCarried.address === workspaceApps.windowAddress(item.modelData))
+      moved.movedTo = Qt.point(lastCarried.x, lastCarried.y)
     lastCarried = null
     rereadAfterMove.restart()
   }
@@ -274,10 +327,9 @@ Item {
               root.cancelDrag(tile)
             }
 
-            // Out of the preview while its row is being carried, and after it is
-            // dropped on another workspace, until it has gone there.
-            readonly property bool carriedAway: (!!root.dragItem && root.dragItem !== tile && root.dragItem.modelData === tile.modelData)
-              || (rowHider.address !== "" && rowHider.address === workspaceApps.windowAddress(tile.modelData))
+            // Out of the preview while its row is carried off onto the bar, and
+            // after it is dropped on another workspace, until it has gone there.
+            readonly property bool carriedAway: rowHider.address !== "" && rowHider.address === workspaceApps.windowAddress(tile.modelData)
             visible: placed && !carriedAway
             x: placed ? (atX - (root.monitor ? root.monitor.x : 0)) * preview.ratio : 0
             y: placed ? (atY - (root.monitor ? root.monitor.y : 0)) * preview.ratio : 0
@@ -349,6 +401,8 @@ Item {
 
           Component.onDestruction: root.cancelDrag(row)
 
+          // Out of the list while it is carried as its window's thumbnail.
+          opacity: root.dragItem === row && root.ghostItem !== row ? 0 : 1
           width: parent ? parent.width : 0
           height: Math.max(root.iconSize, title.implicitHeight) + root.edge
 

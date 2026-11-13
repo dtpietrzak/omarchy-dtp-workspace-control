@@ -156,6 +156,10 @@ Item {
   property int listId: -1
   onPointedIdChanged: followPointer()
   onDragTileChanged: {
+    if (!dragTile) toDesktop = false
+    if (!dragTile) rowThumb = null
+    if (!dragTile) heldAt = null
+    if (!dragTile) raisedAddress = ""
     followPointer()
     // Let go or put down: a window hidden while it was carried comes back. One
     // sent to another workspace waits until it is there, so it never flashes here.
@@ -166,12 +170,12 @@ Item {
     })
     if (!dragTile) return
     lastCarried = null
-    // Picked up, it shrinks to carryScale around the spot it is held by, and a
+    // Picked up, it shrinks to its carried size around the spot it is held by, and a
     // picture of it is kept for when it lands.
     dragShot = null
     dragThumbShot = null
     dragScale = 1
-    dragShrink.to = root.carryScale
+    dragShrink.to = carriedScale
     if (flightsOn) dragShrink.restart()
     var picked = dragTile
     picked.grabToImage(function(result) { if (root.dragTile === picked) root.dragShot = result })
@@ -196,8 +200,11 @@ Item {
     return null
   }
   property real dragScale: 1
-  // How big a carried mini view or list row is, against its full size.
+  // How big a carried list row is, against its full size.
   readonly property real carryScale: 0.75
+  // A mini view shrinks further than a row does, which has text to keep readable.
+  readonly property real tileCarryScale: 0.5
+  readonly property real carriedScale: dragTile && !dragTile.listRow ? tileCarryScale : carryScale
   property var dragShot: null
   NumberAnimation { id: dragShrink; target: root; property: "dragScale"; to: root.carryScale; duration: Style.duration(180); easing.type: Easing.OutCubic }
   function followPointer() {
@@ -694,10 +701,36 @@ Item {
     return found
   }
 
+  // The card a carried window is over. Anywhere on the band is over one: above
+  // and below a card count as that card, the gap between two cards is half
+  // each, and past either end of the row is the card at that end. Only above
+  // the band, on the desktop, is it over none.
   function cardAt(x, y) {
+    if (y < band.y) return null
     var point = cards.mapFromItem(panel.contentItem, x, y)
-    var card = cards.childAt(point.x, point.y)
-    return card && card.wsId !== undefined ? card : null
+    var nearest = null
+    var nearestBy = 0
+    for (var i = 0; i < cards.children.length; i++) {
+      var each = cards.children[i]
+      if (each.wsId === undefined || !each.visible) continue
+      var by = point.x < each.x ? each.x - point.x : Math.max(0, point.x - (each.x + each.width))
+      if (!nearest || by < nearestBy) {
+        nearest = each
+        nearestBy = by
+      }
+    }
+    return nearest
+  }
+
+  // The card the window being dragged is over. The same, but for a row from
+  // the list over its own workspace: that counts only on the card itself. The
+  // band around it, which the row crosses on its way down from the list, is
+  // over nothing, so its window stays as it is until it gets there.
+  function dragCardAt(tile, x, y) {
+    var card = cardAt(x, y)
+    if (!card || !tile || !tile.listRow || card.wsId !== tile.wsId) return card
+    var point = card.mapFromItem(panel.contentItem, x, y)
+    return card.contains(point) ? card : null
   }
 
   // The mini view of the topmost real window at this screen position.
@@ -726,9 +759,93 @@ Item {
     if (dragTile !== tile) dragGrab = grab || Qt.point(tile.width / 2, tile.height / 2)
     dragTile = tile
     dragPos = Qt.point(x, y)
-    var card = cardAt(x, y)
-    hoverId = card ? card.wsId : -1
+    var card = dragCardAt(tile, x, y)
+    // Over the desktop, a window is headed for the workspace being shown,
+    // whose card lights up the same as one it is carried over. One already on
+    // that workspace is treated the same, and moves when it is let go.
+    toDesktop = !card && activeId > 0 && overDesktop(x, y)
+    hoverId = card ? card.wsId : toDesktop ? activeId : -1
+    // A row carried onto the workspace being shown, its card or the desktop,
+    // turns into its window's mini view.
+    rowThumb = tile.listRow && (card ? card.wsId === activeId : overDesktop(x, y)) ? tileFor(tile.modelData) : null
     carryWindow(tile, card)
+  }
+
+  // Set while a window is carried over the desktop, and while a minimized one is.
+  property bool toDesktop: false
+  property bool minimizedToDesktop: false
+  // The mini view a carried row is shown as, while it is over the workspace
+  // being shown.
+  property Item rowThumb: null
+
+  // On the desktop itself: above the band, and not on anything of the panel's
+  // that floats there.
+  function overDesktop(x, y) {
+    if (y >= band.y) return false
+    var floats = [windowList, popupCard, appSearch]
+    for (var i = 0; i < floats.length; i++) {
+      var item = floats[i]
+      if (item.visible && item.contains(item.mapFromItem(panel.contentItem, x, y))) return false
+    }
+    return true
+  }
+
+  // Where on the screen a window let go of over the desktop goes: centered on
+  // the pointer, whatever spot it was picked up by. Only a floating window has
+  // a spot of its own.
+  function desktopSpot(tile) {
+    var toplevel = tile ? tile.modelData : null
+    var ipc = toplevel && toplevel.lastIpcObject ? toplevel.lastIpcObject : null
+    if (!monitor || !ipc || !ipc.floating || !ipc.size || sw <= 0) return null
+    var width = ipc.size[0], height = ipc.size[1]
+    var left = dragPos.x - width / 2
+    var top = dragPos.y - height / 2
+    return {
+      address: workspaceApps.windowAddress(toplevel),
+      x: Math.round(monitor.x + prefs.keepX(left, width, sw)),
+      y: Math.round(monitor.y + prefs.keepY(top, height, sh)),
+      width: width,
+      height: height
+    }
+  }
+  // That spot for the window being carried there now, which is outlined.
+  // A window carried from another workspace over the card of the one being
+  // shown is outlined on the screen as well, where it would turn up.
+  readonly property var desktopLanding: {
+    if (!dragTile) return null
+    if (toDesktop) return desktopSpot(dragTile)
+    if (dragTile.wsId === activeId || hoverId !== activeId) return null
+    return dropSpot(dragTile, dragCardAt(dragTile, dragPos.x, dragPos.y))
+  }
+
+  // Where a floating window would land on the card it is carried over, as the
+  // outline of its mini view there: a row from the list on any card, and a
+  // mini view on another workspace's. Over its own card a mini view needs
+  // none, being at full size where the window already is.
+  readonly property var cardLanding: {
+    var card = dragTile ? dragCardAt(dragTile, dragPos.x, dragPos.y) : null
+    if (card && card.wsId === dragTile.wsId && !dragTile.listRow) return null
+    return cardSpotRect
+  }
+  // The same spot whichever card that is, its own included: kept inside the
+  // card, as the window is kept on the screen. A row shown as its mini view
+  // sits on it.
+  readonly property var cardSpotRect: {
+    if (!dragTile || !monitor || sw <= 0) return null
+    var card = dragCardAt(dragTile, dragPos.x, dragPos.y)
+    var spot = card ? dropSpot(dragTile, card) : null
+    var ipc = spot ? dragTile.modelData.lastIpcObject : null
+    if (!spot || !ipc || !ipc.size) return null
+    var ratio = root.cardW / sw
+    var at = card.mapToItem(panel.contentItem, (spot.x - monitor.x) * ratio, (spot.y - monitor.y) * ratio)
+    return Qt.rect(at.x, at.y, ipc.size[0] * ratio, ipc.size[1] * ratio)
+  }
+
+  function cardFor(id) {
+    for (var i = 0; i < cards.children.length; i++) {
+      if (cards.children[i].wsId === id) return cards.children[i]
+    }
+    return null
   }
 
   // The real window goes where its mini view is carried: over its own card, to
@@ -737,33 +854,70 @@ Item {
   // another card it waits where it is, for the drop to send it there. Only a
   // floating window has a spot of its own to go to.
   property var carried: null
+  // Where the mini view being carried over its own card is kept, when its
+  // window is: its corner, in the panel's coordinates. Null lets it follow
+  // the pointer.
+  property var heldAt: null
   function carryWindow(tile, card) {
-    // Carried off its own card, a window of the workspace being shown leaves
-    // the screen. Over its own card, or up above the band, it is there.
-    var away = !!tile && tile.wsId === activeId && (card ? card.wsId !== tile.wsId : dragPos.y >= band.y)
+    // A window of the workspace being shown leaves the screen while it is over
+    // another workspace's card, where letting go would send it away, and while
+    // a landing box stands in for it over the desktop. Over its own card it is
+    // carried there itself, and anywhere else letting go leaves it where it
+    // is, so it stays.
+    var away = false
+    if (tile && tile.wsId === activeId) {
+      if (card) away = card.wsId !== tile.wsId
+      else away = toDesktop && !!desktopSpot(tile)
+    }
     setWindowHidden(tile ? tile.modelData : null, away)
     var spot = null
     var floating = !!tile && !tile.listRow && tile.placed && !!tile.ipc.floating && !!monitor && tile.ratio > 0
     if (floating && card && card.wsId === tile.wsId) {
       var inCard = card.mapFromItem(panel.contentItem, dragPos.x, dragPos.y)
       spot = Qt.point(monitor.x + (inCard.x - dragGrab.x) / tile.ratio, monitor.y + (inCard.y - dragGrab.y) / tile.ratio)
-    } else if (floating && !card && tile.wsId === activeId && dragPos.y < band.y) {
-      spot = Qt.point(monitor.x + dragPos.x - dragGrab.x / tile.ratio, monitor.y + dragPos.y - dragGrab.y / tile.ratio)
     }
-    // Full size over its own card, where it stands for the real window exactly.
-    var scaleTo = spot && card ? 1 : carryScale
+    // Full size over its own card, where it stands for the real window exactly,
+    // over the desktop, where letting go brings the real window back, and as
+    // the mini view a row has turned into over a card.
+    var scaleTo = (spot && card) || toDesktop || (rowThumb && card) ? 1 : carriedScale
     if (flightsOn && dragShrink.to !== scaleTo) {
       dragShrink.to = scaleTo
       dragShrink.restart()
     }
-    if (!spot) return
+    // A row on the card of the workspace being shown carries its window the
+    // same way its mini view would, by its middle.
+    var rowSpot = tile && tile.listRow && card && card.wsId === activeId && tile.wsId === activeId ? dropSpot(tile, card) : null
+    if (rowSpot) {
+      raiseCarried(tile)
+      carried = { address: rowSpot.address, x: rowSpot.x, y: rowSpot.y }
+      if (!carryTimer.running) carryTimer.start()
+    }
+    if (!spot) {
+      heldAt = null
+      return
+    }
+    raiseCarried(tile)
     var width = tile.ipc.size[0], height = tile.ipc.size[1]
     carried = {
       address: workspaceApps.windowAddress(tile.modelData),
-      x: Math.round(Math.max(monitor.x, Math.min(monitor.x + sw - width, spot.x))),
-      y: Math.round(Math.max(monitor.y, Math.min(monitor.y + sh - height, spot.y)))
+      x: Math.round(monitor.x + prefs.keepX(spot.x - monitor.x, width, sw)),
+      y: Math.round(monitor.y + prefs.keepY(spot.y - monitor.y, height, sh))
     }
+    // The mini view stops where its window does: held on its card at the
+    // spot the window is kept to, however far past that the pointer goes.
+    var held = card.mapToItem(panel.contentItem, (carried.x - monitor.x) * tile.ratio, (carried.y - monitor.y) * tile.ratio)
+    heldAt = Qt.point(held.x, held.y)
     if (!carryTimer.running) carryTimer.start()
+  }
+
+  // A real window being carried is above every other window from the moment
+  // it first moves, as it will be once it is let go. Once for each drag.
+  property string raisedAddress: ""
+  function raiseCarried(tile) {
+    var address = workspaceApps.windowAddress(tile.modelData)
+    if (address === "" || address === raisedAddress) return
+    raisedAddress = address
+    workspaceApps.raiseWindow(tile.modelData)
   }
 
   // Cartoon speed lines riding on the trailing edge of whatever is moving
@@ -819,8 +973,8 @@ Item {
     quietSplash.clearImpacts()
   }
 
-  // Where on the screen a window dropped on this card goes: the spot its mini
-  // view was let go at, or, for a row from the list, centered on the pointer.
+  // Where on the screen a window dropped on this card goes: centered on the
+  // spot of the card the pointer let go at, whatever spot it was picked up by.
   // Only a floating window has a spot of its own.
   function dropSpot(tile, card) {
     var toplevel = tile ? tile.modelData : null
@@ -829,12 +983,14 @@ Item {
     var ratio = root.cardW / sw
     var inCard = card.mapFromItem(panel.contentItem, dragPos.x, dragPos.y)
     var width = ipc.size[0], height = ipc.size[1]
-    var left = tile.listRow ? inCard.x / ratio - width / 2 : (inCard.x - dragGrab.x) / ratio
-    var top = tile.listRow ? inCard.y / ratio - height / 2 : (inCard.y - dragGrab.y) / ratio
+    var left = inCard.x / ratio - width / 2
+    var top = inCard.y / ratio - height / 2
     return {
       address: workspaceApps.windowAddress(toplevel),
-      x: Math.round(monitor.x + Math.max(0, Math.min(sw - width, left))),
-      y: Math.round(monitor.y + Math.max(0, Math.min(sh - height, top)))
+      x: Math.round(monitor.x + prefs.keepX(left, width, sw)),
+      y: Math.round(monitor.y + prefs.keepY(top, height, sh)),
+      width: width,
+      height: height
     }
   }
 
@@ -905,8 +1061,24 @@ Item {
       tile.movedTo = Qt.point(lastCarried.x, lastCarried.y)
     lastCarried = null
     var target = hoverId
+    var onDesktop = !!tile && overDesktop(dragPos.x, dragPos.y)
+    var asThumb = !!rowThumb
     dragTile = null
     hoverId = -1
+    var ownCard = dragCardAt(tile, dragPos.x, dragPos.y)
+    if (tile && target === tile.wsId && (tile.listRow || !ownCard)) {
+      // Let go of on its own workspace, a floating window goes to that spot:
+      // a row on its card, and a row or a mini view on the desktop itself. A
+      // mini view over its own card has carried the window there already.
+      var ownSpot = ownCard ? dropSpot(tile, ownCard) : desktopSpot(tile)
+      if (ownSpot) {
+        // In place, not sliding there from where it was.
+        workspaceApps.holdStill(ownSpot.address)
+        Hyprland.dispatch('hl.dsp.window.move({ x = ' + ownSpot.x + ', y = ' + ownSpot.y + ', window = "address:' + ownSpot.address + '" })')
+        var ownTile = tileFor(tile.modelData)
+        if (ownTile) ownTile.movedTo = Qt.point(ownSpot.x, ownSpot.y)
+      }
+    }
     if (tile && target > 0 && target !== tile.wsId) {
       droppedAway = true
       leavingAddress = workspaceApps.windowAddress(tile.modelData)
@@ -914,8 +1086,11 @@ Item {
       // It grows back to full size as it settles into the spot the window goes
       // to, kept on the screen the same way, then splashes as it lands.
       var held = tile.listRow ? Qt.point(tile.grabX, tile.height / 2) : dragGrab
-      var dropCard = cardAt(dragPos.x, dragPos.y)
-      var spot = dropSpot(tile, dropCard)
+      var dropCard = dragCardAt(tile, dragPos.x, dragPos.y)
+      // Let go of over the desktop, it lands on the card of the workspace
+      // being shown, at the spot the window goes to on the screen.
+      var landCard = dropCard || cardFor(target)
+      var spot = dropCard ? dropSpot(tile, dropCard) : desktopSpot(tile)
       var carriedRect = Qt.rect(dragPos.x - held.x * dragScale, dragPos.y - held.y * dragScale, tile.width * dragScale, tile.height * dragScale)
       var landRect = Qt.rect(dragPos.x - held.x, dragPos.y - held.y, tile.width, tile.height)
       var ipc = tile.modelData ? tile.modelData.lastIpcObject : null
@@ -925,15 +1100,26 @@ Item {
         // that size, in the spot the window goes to, or centered on the pointer.
         var thumbW = ipc.size[0] * ratio, thumbH = ipc.size[1] * ratio
         landRect = Qt.rect(dragPos.x - thumbW / 2, dragPos.y - thumbH / 2, thumbW, thumbH)
-        if (spot && monitor) {
-          var rowAt = dropCard.mapToItem(panel.contentItem, (spot.x - monitor.x) * ratio, (spot.y - monitor.y) * ratio)
+        // Already carried as its mini view, it sets off from where that is.
+        if (asThumb) carriedRect = Qt.rect(dragPos.x - thumbW * dragScale / 2, dragPos.y - thumbH * dragScale / 2, thumbW * dragScale, thumbH * dragScale)
+        if (spot && monitor && landCard) {
+          var rowAt = landCard.mapToItem(panel.contentItem, (spot.x - monitor.x) * ratio, (spot.y - monitor.y) * ratio)
           landRect = Qt.rect(rowAt.x, rowAt.y, thumbW, thumbH)
         }
-      } else if (spot && !tile.listRow && monitor) {
-        var at = dropCard.mapToItem(panel.contentItem, (spot.x - monitor.x) * ratio, (spot.y - monitor.y) * ratio)
+      } else if (spot && !tile.listRow && monitor && landCard) {
+        var at = landCard.mapToItem(panel.contentItem, (spot.x - monitor.x) * ratio, (spot.y - monitor.y) * ratio)
         landRect = Qt.rect(at.x, at.y, tile.width, tile.height)
       }
-      if (flightsOn) landing.land(dragShot, carriedRect, landRect, target, tile.listRow ? dragThumbShot : null)
+      if (!dropCard && !spot && landCard) {
+        // A tiled window let go of over the desktop has no spot of its own, so
+        // it lands in the middle of the card.
+        var mid = landCard.mapToItem(panel.contentItem, (landCard.width - landRect.width) / 2, (landCard.height - landRect.height) / 2)
+        landRect = Qt.rect(mid.x, mid.y, landRect.width, landRect.height)
+      }
+      var landsAsThumb = asThumb && !!dragThumbShot
+      // Coming onto the screen, it turns up in place and doesn't slide in.
+      if (target === activeId) workspaceApps.holdStill(workspaceApps.windowAddress(tile.modelData))
+      if (flightsOn) landing.land(landsAsThumb ? dragThumbShot : dragShot, carriedRect, landRect, target, tile.listRow && !landsAsThumb ? dragThumbShot : null)
       moveWindow(tile.modelData, target)
       if (spot) {
         // And on the new workspace it goes where it was let go.
@@ -941,6 +1127,9 @@ Item {
         placedTiles[spot.address] = { x: spot.x, y: spot.y, at: Date.now() }
       }
     }
+    // Whatever is let go of on a workspace, or on the desktop, is the top
+    // window there. Last, so it holds after the moves above.
+    if (tile && (target > 0 || onDesktop)) workspaceApps.raiseWindow(tile.modelData)
     dragShrink.stop()
     dragScale = 1
   }
@@ -1879,14 +2068,21 @@ Item {
             onDragMoved: function(x, y) {
               root.minimizedDragPos = Qt.point(x, y)
               var card = root.cardAt(x, y)
-              root.hoverId = card ? card.wsId : -1
+              // Over the desktop it is headed for the workspace being shown,
+              // the same as over that workspace's card.
+              root.minimizedToDesktop = !card && root.activeId > 0 && root.overDesktop(x, y)
+              root.hoverId = card ? card.wsId : root.minimizedToDesktop ? root.activeId : -1
             }
             onDragDropped: function(toplevel) {
               root.droppedAt = Date.now()
               if (root.hoverId > 0) root.moveWindow(toplevel, root.hoverId)
               root.hoverId = -1
+              root.minimizedToDesktop = false
             }
-            onDragCanceled: root.hoverId = -1
+            onDragCanceled: {
+              root.hoverId = -1
+              root.minimizedToDesktop = false
+            }
           }
         }
       }
@@ -1895,7 +2091,11 @@ Item {
         source: root.minimizedDrag
         position: root.minimizedDragPos
         grab: minimizedPopup.item ? minimizedPopup.item.grabPoint : Qt.point(0, 0)
-        itemScale: 0.5
+        // Full size over the desktop, where letting go brings the window back.
+        itemScale: root.minimizedToDesktop ? 1 : 0.5
+        Behavior on itemScale {
+          NumberAnimation { duration: Style.duration(180); easing.type: Easing.OutCubic }
+        }
       }
 
       // Holds the list open while the pointer is near it or crossing the space
@@ -2167,6 +2367,29 @@ Item {
         opacity: 0.8
       }
 
+      // Where a floating window would land on the desktop, at the size of the
+      // real window.
+      // Cut off at the band, which the real window would be behind.
+      Item {
+        width: parent.width
+        height: Math.max(0, band.y)
+        clip: true
+
+        GhostBox {
+          spot: root.desktopLanding && root.monitor
+            ? Qt.rect(root.desktopLanding.x - root.monitor.x, root.desktopLanding.y - root.monitor.y, root.desktopLanding.width, root.desktopLanding.height)
+            : null
+          toplevel: root.dragTile ? root.dragTile.modelData : null
+        }
+      }
+
+      // And where one would land on a card. A row shown as its mini view is
+      // that box itself.
+      GhostBox {
+        spot: root.rowThumb ? null : root.cardLanding
+        toplevel: root.dragTile ? root.dragTile.modelData : null
+      }
+
       // The window under the cursor while it is being dragged.
       ShaderEffectSource {
         visible: !!root.dragTile
@@ -2176,9 +2399,11 @@ Item {
         height: root.dragTile ? root.dragTile.height : 0
         // It keeps hold of the spot it was picked up by: a list row along its
         // width, a mini view wherever it was grabbed.
-        x: root.dragPos.x - held.x
-        y: root.dragPos.y - held.y
-        opacity: 0.9
+        x: root.heldAt ? root.heldAt.x : root.dragPos.x - held.x
+        y: root.heldAt ? root.heldAt.y : root.dragPos.y - held.y
+        // Still here while a row is shown as its mini view, so the row stays
+        // out of the list.
+        opacity: root.rowThumb ? 0 : 0.9
         readonly property point held: root.dragTile && root.dragTile.listRow ? Qt.point(root.dragTile.grabX, height / 2) : root.dragGrab
         // Smaller while it is carried, shrunk toward the spot it is held by.
         transform: Scale {
@@ -2188,6 +2413,43 @@ Item {
           yScale: root.dragScale
         }
         id: dragGhost
+      }
+
+      // A row carried over the workspace being shown, as its window's mini
+      // view inside the same outline a landing spot has. Over a card it sits
+      // on the spot a floating window would land, kept inside the card. With
+      // no spot of its own, and over the desktop, it is held by its middle.
+      Item {
+        id: thumbGhost
+        visible: !!root.rowThumb
+        width: root.rowThumb ? root.rowThumb.width : 0
+        height: root.rowThumb ? root.rowThumb.height : 0
+        x: root.cardSpotRect ? root.cardSpotRect.x : root.dragPos.x - width / 2
+        y: root.cardSpotRect ? root.cardSpotRect.y : root.dragPos.y - height / 2
+        transform: Scale {
+          origin.x: thumbGhost.width / 2
+          origin.y: thumbGhost.height / 2
+          xScale: root.dragScale
+          yScale: root.dragScale
+        }
+
+        ShaderEffectSource {
+          anchors.fill: parent
+          sourceItem: root.rowThumb
+          hideSource: true
+          // As faint as the window in any other landing box. On its own
+          // card, where the real window is carried along with it, as solid as
+          // a mini view carried there.
+          opacity: root.dragTile && root.dragTile.wsId === root.activeId && root.hoverId === root.activeId && !root.toDesktop ? 0.9 : 0.5
+        }
+
+        Rectangle {
+          anchors.fill: parent
+          radius: Math.min(Style.cornerRadius, height / 2)
+          color: "transparent"
+          border.width: 1
+          border.color: Commons.Color.accent
+        }
       }
 
       // A window dropped on another workspace's card. It grows back to full

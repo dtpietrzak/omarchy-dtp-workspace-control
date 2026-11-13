@@ -459,12 +459,61 @@ BarWidget {
   onPeekOverPreviewChanged: followPeekScale()
   function followPeekScale() {
     if (!peekDragItem) return
-    var to = peekOverPreview ? 1 : peekDragItem.dragScale
+    var to = peekOverPreview || peekOverDesktop ? 1 : peekDragItem.dragScale
     if (peekShrink.to === to && (peekShrink.running || peekDragScale === to)) return
     peekShrink.stop()
     peekShrink.from = peekDragScale
     peekShrink.to = to
     peekShrink.start()
+  }
+
+  // Set while a window from the hover card or the minimized list is carried
+  // over the desktop: off the card it came from, off the bar, and so not on a
+  // workspace number. There it grows back to full size, as it will on the screen.
+  property bool peekOverDesktop: false
+  onPeekOverDesktopChanged: followPeekScale()
+  function onCard(x, y, from) {
+    return x >= from.x && x < from.x + from.width && y >= from.y && y < from.y + from.height
+  }
+  function overDesktop(x, y, from) {
+    if (onCard(x, y, from)) return false
+    var side = peek.barSide
+    if (side === "top") return y >= barSize
+    if (side === "bottom") return y < peek.screenHeight - barSize
+    if (side === "left") return x >= barSize
+    return x < peek.screenWidth - barSize
+  }
+
+  // Where on the screen a window from the hover card goes when it is let go of
+  // over the desktop: centered on the pointer, whatever spot it was picked up
+  // by. Only a floating window has a spot of its own.
+  function desktopSpot(source) {
+    var item = source ? source.dragItem : null
+    if (!item || !monitor) return null
+    var address = workspaceApps.windowAddress(item.modelData)
+    var client = source.clients[address]
+    if (!client || !client.floating || !client.size) return null
+    var width = client.size[0], height = client.size[1]
+    var left = peekDragPos.x - width / 2
+    var top = peekDragPos.y - height / 2
+    return {
+      address: address,
+      x: Math.round(monitor.x + prefs.keepX(left, width, peek.screenWidth)),
+      y: Math.round(monitor.y + prefs.keepY(top, height, peek.screenHeight)),
+      width: width,
+      height: height
+    }
+  }
+  // That spot for the window being carried there now, which is outlined. One
+  // carried from another workspace onto the number of the workspace being
+  // shown is outlined too, where it is, which is where it would turn up.
+  readonly property var peekLanding: {
+    if (!peekDragItem || dragSource !== peekContent.item) return null
+    if (peekOverDesktop) return desktopSpot(peekContent.item)
+    if (dropTargetId !== activeId || peekId === activeId) return null
+    var client = peekContent.item.clients[workspaceApps.windowAddress(peekDragItem.modelData)]
+    if (!client || !client.floating || !client.size || !client.at) return null
+    return { x: client.at[0], y: client.at[1], width: client.size[0], height: client.size[1] }
   }
 
   // Closing the last window from the card leaves it nothing to show.
@@ -601,27 +650,58 @@ BarWidget {
           onDragMoved: function(x, y) {
             root.peekDragPos = Qt.point(x, y)
             root.dropTargetId = root.workspaceAt(x, y)
+            root.peekOverDesktop = root.dropTargetId < 0 && root.overDesktop(x, y, card)
+            peekContent.item.setAway(!root.peekOverDesktop && !root.onCard(x, y, card),
+              root.peekId === root.activeId && !!root.peekLanding, root.peekOverDesktop)
           }
           onDragDropped: function(toplevel, fromId) {
             var target = root.dropTargetId
+            var toDesktop = root.peekOverDesktop
+            var spot = toDesktop ? root.desktopSpot(peekContent.item) : null
             root.dropTargetId = -1
+            root.peekOverDesktop = false
             root.droppedAt = Date.now()
             if (target > 0 && target !== fromId) {
               dropMoves = true
               workspaceApps.moveWindow(toplevel, target)
               root.dripOn(target)
+            } else if (toDesktop && (spot || fromId !== root.activeId)) {
+              // Let go of over the desktop, it comes to the workspace being
+              // shown, a floating window where it was let go, and takes focus.
+              // dropMoves stays off: that keeps a window hidden until it has
+              // left the screen, and this one is arriving on it.
+              // In place, too, and not sliding there from where it was.
+              workspaceApps.holdStill(workspaceApps.windowAddress(toplevel))
+              if (fromId !== root.activeId) workspaceApps.moveWindow(toplevel, root.activeId)
+              if (spot) Hyprland.dispatch('hl.dsp.window.move({ x = ' + spot.x + ', y = ' + spot.y + ', window = "address:' + spot.address + '" })')
+              workspaceApps.focusWindow(toplevel)
+              if (fromId !== root.activeId) root.dripOn(root.activeId)
             }
           }
-          onDragCanceled: root.dropTargetId = -1
+          onDragCanceled: {
+            root.dropTargetId = -1
+            root.peekOverDesktop = false
+          }
         }
       }
     }
 
+    // Where a floating window would land on the desktop, at the size of the
+    // real window.
+    GhostBox {
+      spot: root.peekLanding && root.monitor
+        ? Qt.rect(root.peekLanding.x - root.monitor.x, root.peekLanding.y - root.monitor.y, root.peekLanding.width, root.peekLanding.height)
+        : null
+      toplevel: root.peekDragItem ? root.peekDragItem.modelData : null
+    }
+
     // The window under the cursor while it is being dragged.
     DragGhost {
-      source: root.dragSource === peekContent.item ? root.peekDragItem : null
+      // A row is carried as its window's thumbnail over the preview and the
+      // desktop, which the card works out.
+      source: peekContent.item && root.dragSource === peekContent.item ? peekContent.item.ghostItem : null
       position: root.peekDragPos
-      grab: peekContent.item ? peekContent.item.grabPoint : Qt.point(0, 0)
+      grab: peekContent.item ? peekContent.item.ghostGrab : Qt.point(0, 0)
       itemScale: root.peekDragScale
       bounds: root.peekOverPreview ? peekContent.item.previewArea : Qt.rect(0, 0, 0, 0)
     }
@@ -706,17 +786,28 @@ BarWidget {
           onDragMoved: function(x, y) {
             root.peekDragPos = Qt.point(x, y)
             root.dropTargetId = root.workspaceAt(x, y)
+            root.peekOverDesktop = root.dropTargetId < 0 && root.overDesktop(x, y, menuCard)
           }
           onDragDropped: function(toplevel) {
             var target = root.dropTargetId
+            var toDesktop = root.peekOverDesktop
             root.dropTargetId = -1
+            root.peekOverDesktop = false
             root.droppedAt = Date.now()
             if (target > 0) {
               workspaceApps.moveWindow(toplevel, target)
               root.dripOn(target)
+            } else if (toDesktop) {
+              // Let go of over the desktop, it comes back to the workspace
+              // being shown, the same as a click on its row.
+              root.restoreWindow(toplevel)
+              root.dripOn(root.activeId)
             }
           }
-          onDragCanceled: root.dropTargetId = -1
+          onDragCanceled: {
+            root.dropTargetId = -1
+            root.peekOverDesktop = false
+          }
         }
       }
 
