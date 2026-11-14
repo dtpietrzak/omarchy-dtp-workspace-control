@@ -40,6 +40,12 @@ The swipe stays registered, doing nothing, until Hyprland next reloads. If you t
 
 ![A hover card on the bar with a live preview of the workspace and a list of its windows](screenshots/bar-hover-card.png)
 
+![Carrying a window from the hover card, with a box showing where it will land](screenshots/bar-hover-card-landing.png)
+
+![The windows of every open workspace listed above the bar, one being picked up](screenshots/bar-window-list-drag.png)
+
+![A workspace's windows listed above the bar](screenshots/bar-window-list.png)
+
 - The three rows before them open every app in a card under the bar, in the bar's background. Type to search, Up and Down to move, Enter or a click to open. Right-click an app to open it, keep it in the dock, or uninstall it. Escape clears the search, then closes the card, and so does a click anywhere else.
 - The three squares open and close the panel.
 - Right-click any of the widget's buttons for a menu of Settings, Workspace Panel and App List, each with its shortcut beside it.
@@ -50,7 +56,11 @@ The swipe stays registered, doing nothing, until Hyprland next reloads. If you t
 
 ## In the panel
 
-![The workspace panel with a live view of each workspace](preview.png)
+![The workspace panel with a live view of each workspace](screenshots/panel-carry.png)
+
+![A window's mini view being carried between workspaces in the panel](screenshots/panel-mini-view.png)
+
+![A window landing on the workspace you're on, shown by a box](screenshots/panel-landing-box.png)
 
 A four finger swipe up pulls up a band of workspaces with a live mini view of each window. Let go after 20% of the way and it stays; let go sooner and it drops back.
 
