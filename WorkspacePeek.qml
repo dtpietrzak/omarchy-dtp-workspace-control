@@ -19,6 +19,10 @@ Item {
   property real screenWidth: 0
   property real screenHeight: 0
   property bool previewOnTop: true
+  // The settings, for how far a window may hang off the screen's edges.
+  property var keep: null
+  // How big the preview is next to the screen.
+  readonly property real previewRatio: preview.ratio
 
   // What drags report positions in.
   property Item dragSpace: null
@@ -76,10 +80,17 @@ Item {
   // the window waits where it is, for a drop on a workspace to send it there.
   property bool overPreview: false
   // The preview, in the coordinates drags report in, which a thumbnail carried
-  // over it is kept inside, as its window is kept on the screen.
+  // over it is kept to, as its window is kept to the screen: it may hang off
+  // the sides and the bottom, with a little of it left showing.
   property rect previewArea: Qt.rect(0, 0, 0, 0)
   property var carried: null
   property var lastCarried: null
+  // How far a row carried into the preview has given way to its window's
+  // thumbnail, 0 to 1. The thumbnail is centered on the pointer but is kept
+  // to the preview, so it sits still at the edge the row came in by until the
+  // pointer is far enough in for it to follow. Over that stretch the row's
+  // copy shrinks and fades, and it is gone as the thumbnail starts to move.
+  property real rowHandover: 0
 
   // Hyprland's record of the window a thumbnail or a row is for, and that
   // window's thumbnail.
@@ -116,6 +127,7 @@ Item {
     var inPreview = area.mapToItem(preview, mouse.x, mouse.y)
     var inside = inPreview.x >= 0 && inPreview.y >= 0 && inPreview.x <= preview.width && inPreview.y <= preview.height
     overPreview = inside && !!client && !!client.floating && !!monitor && preview.ratio > 0
+    rowHandover = 0
     if (!overPreview) return
     var corner = preview.mapToItem(dragSpace, 0, 0)
     previewArea = Qt.rect(corner.x, corner.y, preview.width, preview.height)
@@ -124,13 +136,30 @@ Item {
     var isRow = item.client === undefined
     var heldX = isRow ? width * preview.ratio / 2 : grabPoint.x
     var heldY = isRow ? height * preview.ratio / 2 : grabPoint.y
+    if (isRow) {
+      // The list is under the preview or over it, and the row comes in by
+      // that edge: up past the bottom, where a little of the window is kept
+      // showing, or down past the top, where its title bar is kept in reach.
+      var stretch = previewOnTop ? (height / 2 - (keep ? keep.keepShowing : height)) * preview.ratio
+                                 : (height / 2 + (keep ? keep.titleBarHeight : 0)) * preview.ratio
+      var depth = previewOnTop ? preview.height - inPreview.y : inPreview.y
+      rowHandover = stretch > 0 ? Math.max(0, Math.min(1, depth / stretch)) : 1
+    }
     raiseCarried(workspaceApps.windowAddress(item.modelData))
     carried = {
       address: workspaceApps.windowAddress(item.modelData),
-      x: Math.round(monitor.x + Math.max(0, Math.min(screenWidth - width, (inPreview.x - heldX) / preview.ratio))),
-      y: Math.round(monitor.y + Math.max(0, Math.min(screenHeight - height, (inPreview.y - heldY) / preview.ratio)))
+      x: Math.round(monitor.x + keptX((inPreview.x - heldX) / preview.ratio, width)),
+      y: Math.round(monitor.y + keptY((inPreview.y - heldY) / preview.ratio, height))
     }
     if (!carryTimer.running) carryTimer.start()
+  }
+
+  // Without the settings a window is kept wholly on the screen.
+  function keptX(left, width) {
+    return keep ? keep.keepX(left, width, screenWidth) : Math.max(0, Math.min(screenWidth - width, left))
+  }
+  function keptY(top, height) {
+    return keep ? keep.keepY(top, screenHeight) : Math.max(0, Math.min(screenHeight - height, top))
   }
 
   // Where the drag is, as only whoever owns the card can tell. away is off
@@ -295,6 +324,8 @@ Item {
       Item {
         id: preview
         anchors.fill: parent
+        // A window that hangs off the screen is cut off at its edge.
+        clip: true
         readonly property real ratio: root.screenWidth > 0 ? width / root.screenWidth : 0
 
         opacity: root.previewReady ? 1 : 0

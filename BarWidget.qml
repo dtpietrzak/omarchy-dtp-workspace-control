@@ -656,6 +656,7 @@ BarWidget {
           workspaceId: root.peekId
           previewOnTop: peek.previewOnTop
           dragSpace: peek.contentItem
+          keep: prefs
           monitor: root.monitor
           screenWidth: peek.screenWidth
           screenHeight: peek.screenHeight
@@ -727,6 +728,25 @@ BarWidget {
       itemScale: root.peekDragScale * (1 - 0.5 * root.peekHandover)
       fade: root.peekHandover
       bounds: root.peekOverPreview ? peekContent.item.previewArea : Qt.rect(0, 0, 0, 0)
+      // As its window may on the screen, it may hang off the preview's sides
+      // and bottom, and is faint where it does.
+      keepShowing: peekContent.item ? prefs.keepShowing * peekContent.item.previewRatio : -1
+      keepTop: peekContent.item ? prefs.titleBarHeight * peekContent.item.previewRatio : 0
+      solid: prefs.carrySolid
+      faint: prefs.carryFaint
+    }
+
+    // A row carried into the preview, giving way to its window's thumbnail:
+    // still under the pointer, shrinking and fading, until the thumbnail
+    // starts to follow.
+    DragGhost {
+      readonly property real handover: peekContent.item ? peekContent.item.rowHandover : 1
+      source: root.peekRowDrag && root.peekOverPreview && handover < 1 ? root.peekDragItem : null
+      position: root.peekDragPos
+      grab: peekContent.item ? peekContent.item.grabPoint : Qt.point(0, 0)
+      keepSource: true
+      itemScale: (root.peekDragItem ? root.peekDragItem.dragScale : 1) * (1 - 0.5 * handover)
+      fade: handover
     }
   }
 

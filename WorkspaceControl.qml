@@ -1076,6 +1076,11 @@ Item {
   readonly property int impactDelay: 200
   readonly property real impactThickness: Math.max(1.5, Style.space(2))
 
+  // How solid a carried window's small picture is: over the card it would land
+  // on, and anywhere else.
+  readonly property real carrySolid: prefs.carrySolid
+  readonly property real carryFaint: prefs.carryFaint
+
   // Splashes are blue on the workspace being shown, and grey on any other.
   readonly property color quietSplashColor: Qt.alpha(Commons.Color.foreground, 0.55)
   function splashFor(id) { return id === activeId ? panelSplash : quietSplash }
@@ -1211,7 +1216,7 @@ Item {
       }
       // Coming onto the screen, it turns up in place and doesn't slide in.
       if (target === activeId) workspaceApps.holdStill(workspaceApps.windowAddress(tile.modelData))
-      if (flightsOn) landing.land(dragShot, carriedRect, landRect, target, tile.listRow ? dragThumbShot : null)
+      if (flightsOn) landing.land(dragShot, carriedRect, landRect, target, tile.listRow ? dragThumbShot : null, landCard, !dropCard)
       moveWindow(tile.modelData, target)
       if (spot) {
         // And on the new workspace it goes where it was let go.
@@ -2094,6 +2099,28 @@ Item {
           thickness: panelSplash.thickness
           pad: panelSplash.pad
         }
+
+        // The splash off a dropped window, cut off at the edges of the card it
+        // landed on, so none of it shows on the card next to it.
+        Item {
+          id: dropSplashArea
+          property rect area: Qt.rect(0, 0, 0, 0)
+          z: 7
+          x: area.x
+          y: area.y
+          width: area.width
+          height: area.height
+          clip: true
+
+          WorkspaceLine {
+            id: dropSplash
+            color: landing.tint
+            animated: panelSplash.animated
+            splash: panelSplash.splash
+            thickness: panelSplash.thickness
+            pad: panelSplash.pad
+          }
+        }
       }
 
       // Settings and the minimized windows, just past the two ends of the number row.
@@ -2494,9 +2521,13 @@ Item {
       }
 
       // And where one would land on a card.
+      // It goes past the card's edges where the window would go past the
+      // screen's, and is fainter there: only what is on the card is where the
+      // window will be seen. The copy further down adds to it on the card.
       GhostBox {
         spot: root.cardLanding
-        opacity: root.boxFade
+        opacity: root.boxFade * root.carryFaint
+        pictureOpacity: 1
         toplevel: root.dragTile ? root.dragTile.modelData : null
       }
 
@@ -2527,7 +2558,9 @@ Item {
         // It gives way to a landing box, which says where the window is
         // going, and says it better. Still here then, unseen, so a mini view
         // that is carried stays out of its card.
-        opacity: 0.9 * (1 - root.handover)
+        // Faint, and fainter still wherever it is not over the card it would
+        // land on: the copy below adds to it there.
+        opacity: root.carryFaint * (1 - root.handover)
         readonly property point held: root.dragTile && root.dragTile.listRow ? Qt.point(root.dragTile.grabX, height / 2) : root.dragGrab
         // Smaller while it is carried, shrunk toward the spot it is held by.
         transform: Scale {
@@ -2540,9 +2573,57 @@ Item {
         id: dragGhost
       }
 
+      // The part of it over the card it would land on, a little more solid:
+      // that much of it is where the window is going. Drawn over the copy
+      // above, the two add up to the opacity it has on the card.
+      Item {
+        id: carryOnCard
+        readonly property Item card: root.dragTile && root.hoverId > 0 ? root.cardFor(root.hoverId) : null
+        readonly property point at: {
+          // Read so this follows the card as the row and the band move.
+          var moved = band.y + band.x + cards.x + cards.y + (card ? card.x + card.y : 0)
+          return card ? card.mapToItem(panel.contentItem, 0, 0) : Qt.point(0, 0)
+        }
+        visible: !!card
+        x: at.x
+        y: at.y
+        width: card ? card.width : 0
+        height: card ? card.height : 0
+        clip: true
+
+        ShaderEffectSource {
+          sourceItem: root.dragTile
+          x: dragGhost.x - carryOnCard.x
+          y: dragGhost.y - carryOnCard.y
+          width: dragGhost.width
+          height: dragGhost.height
+          opacity: {
+            var under = dragGhost.opacity
+            var wanted = root.carrySolid * (1 - root.handover)
+            return under < 1 ? 1 - (1 - wanted) / (1 - under) : 0
+          }
+          transform: Scale {
+            origin.x: dragGhost.held.x
+            origin.y: dragGhost.held.y
+            xScale: root.dragScale * (1 - 0.5 * root.handover)
+            yScale: root.dragScale * (1 - 0.5 * root.handover)
+          }
+        }
+
+        // The same for the landing box: the part of it on the card.
+        GhostBox {
+          spot: root.cardLanding ? Qt.rect(root.cardLanding.x - carryOnCard.x, root.cardLanding.y - carryOnCard.y, root.cardLanding.width, root.cardLanding.height) : null
+          // Outline and all, so the two add up to how solid it is on the card.
+          opacity: 1 - (1 - root.carrySolid * root.boxFade) / (1 - root.carryFaint * root.boxFade)
+          pictureOpacity: 1
+          toplevel: root.dragTile ? root.dragTile.modelData : null
+        }
+      }
+
       // A window dropped on another workspace's card. It grows back to full
       // size as it settles into the spot its window goes to, then splashes off
       // its outline as it lands, and fades as its mini view takes its place.
+      // This is where it is; it is drawn below, only where it may be seen.
       Item {
         id: landing
         property var landedShot: null
@@ -2552,12 +2633,23 @@ Item {
         property rect toRect: Qt.rect(0, 0, 0, 0)
         property real settleT: 1
         property bool active: false
+        // As solid as it was carried, on the card, and more so as it settles.
+        property real fade: 1
+        readonly property real solid: root.carrySolid + (0.9 - root.carrySolid) * ease(settleT)
         // The workspace it is landing on: blue on the one being shown, grey on another.
         property int ontoId: -1
         readonly property color tint: ontoId === root.activeId ? Commons.Color.accent : root.quietSplashColor
         function ease(t) { return 1 - Math.pow(1 - t, 3) }
 
-        visible: active
+        // The card it is landing on. It is seen only there, never on the card
+        // next to it, however far it reaches past the edge.
+        property rect cardRect: Qt.rect(0, 0, 0, 0)
+        // Let go of over the desktop, it is seen there too on its way down,
+        // cut off at the band as the real window would be.
+        property bool fromDesktop: false
+        readonly property var seenIn: fromDesktop ? [cardRect, Qt.rect(0, 0, parent.width, Math.max(0, band.y))] : [cardRect]
+
+        visible: false
         x: fromRect.x + (toRect.x - fromRect.x) * ease(settleT)
         y: fromRect.y + (toRect.y - fromRect.y) * ease(settleT)
         width: fromRect.width + (toRect.width - fromRect.width) * ease(settleT)
@@ -2567,7 +2659,7 @@ Item {
         property var thumbShot: null
         readonly property bool morphs: !!thumbShot
 
-        function land(picture, start, end, onto, thumb) {
+        function land(picture, start, end, onto, thumb, card, overDesktop) {
           landingRun.stop()
           ontoId = onto
           landedShot = picture
@@ -2575,45 +2667,72 @@ Item {
           settleRun.duration = Style.duration(thumbShot ? 240 : 150)
           fromRect = start
           toRect = end
+          var at = card ? card.mapToItem(panel.contentItem, 0, 0) : null
+          cardRect = card ? Qt.rect(at.x, at.y, card.width, card.height) : Qt.rect(0, 0, parent.width, parent.height)
+          fromDesktop = !!overDesktop
           settleT = 0
-          opacity = 0.9
+          fade = 1
           active = true
           landingRun.start()
         }
 
         function splash() {
-          if (prefs.panelDropSplash) root.splashFor(ontoId).splashRect(Qt.rect(toRect.x - band.x, toRect.y - band.y, toRect.width, toRect.height), 1)
-        }
-
-        Image {
-          anchors.fill: parent
-          source: landing.landedShot ? landing.landedShot.url : ""
-          smooth: true
-          opacity: landing.morphs ? 1 - landing.ease(Math.min(1, landing.settleT * 1.4)) : 1
-        }
-
-        Image {
-          anchors.fill: parent
-          visible: landing.morphs
-          source: landing.thumbShot ? landing.thumbShot.url : ""
-          smooth: true
-          opacity: landing.ease(Math.min(1, landing.settleT * 1.4))
-        }
-
-        Rectangle {
-          anchors.fill: parent
-          color: "transparent"
-          radius: Math.min(Style.cornerRadius, height / 2)
-          border.width: 1
-          border.color: landing.tint
+          if (!prefs.panelDropSplash) return
+          dropSplashArea.area = Qt.rect(cardRect.x - band.x, cardRect.y - band.y, cardRect.width, cardRect.height)
+          dropSplash.splashRect(Qt.rect(toRect.x - cardRect.x, toRect.y - cardRect.y, toRect.width, toRect.height), 1)
         }
 
         SequentialAnimation {
           id: landingRun
           NumberAnimation { id: settleRun; target: landing; property: "settleT"; from: 0; to: 1; duration: Style.duration(150) }
           ScriptAction { script: landing.splash() }
-          NumberAnimation { target: landing; property: "opacity"; to: 0; duration: Style.duration(160); easing.type: Easing.OutCubic }
+          NumberAnimation { target: landing; property: "fade"; to: 0; duration: Style.duration(160); easing.type: Easing.OutCubic }
           ScriptAction { script: { landing.active = false; landing.landedShot = null; landing.thumbShot = null } }
+        }
+      }
+
+      Repeater {
+        model: landing.active ? landing.seenIn : []
+
+        delegate: Item {
+          id: seen
+          required property var modelData
+          x: modelData.x
+          y: modelData.y
+          width: modelData.width
+          height: modelData.height
+          clip: true
+
+          Item {
+            x: landing.x - seen.x
+            y: landing.y - seen.y
+            width: landing.width
+            height: landing.height
+            opacity: landing.fade * landing.solid
+
+            Image {
+              anchors.fill: parent
+              source: landing.landedShot ? landing.landedShot.url : ""
+              smooth: true
+              opacity: landing.morphs ? 1 - landing.ease(Math.min(1, landing.settleT * 1.4)) : 1
+            }
+
+            Image {
+              anchors.fill: parent
+              visible: landing.morphs
+              source: landing.thumbShot ? landing.thumbShot.url : ""
+              smooth: true
+              opacity: landing.ease(Math.min(1, landing.settleT * 1.4))
+            }
+
+            Rectangle {
+              anchors.fill: parent
+              color: "transparent"
+              radius: Math.min(Style.cornerRadius, height / 2)
+              border.width: 1
+              border.color: landing.tint
+            }
+          }
         }
       }
     }

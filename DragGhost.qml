@@ -31,6 +31,30 @@ Item {
   // the spot under the pointer it was picked up by.
   property rect bounds: Qt.rect(0, 0, 0, 0)
   readonly property bool bounded: bounds.width > 0 && bounds.height > 0
+  // How much of the item is kept showing inside the bounds when it hangs off
+  // their sides or bottom, and how far below their top its own top is kept.
+  // Negative keeps the whole item inside.
+  property real keepShowing: -1
+  property real keepTop: 0
+  // While it is kept to the bounds, how solid the part of it inside them is,
+  // and the part that hangs outside.
+  property real solid: 1
+  property real faint: 1
+  // How far that has taken hold, 0 to 1, so it comes and goes without a jump.
+  property real split: bounded ? 1 : 0
+  Behavior on split {
+    NumberAnimation { duration: Style.duration(150); easing.type: Easing.OutCubic }
+  }
+  // The bounds, remembered while that fades back out.
+  property rect splitArea: Qt.rect(0, 0, 0, 0)
+  // How solid it is carried, before any of that.
+  readonly property real carriedOpacity: (1 - (1 - 0.29) * shrunk) * (1 - fade)
+  readonly property real outsideOpacity: carriedOpacity * (1 + (faint - 1) * split)
+  readonly property real outsideBorder: (1 - fade) * (1 + (faint - 1) * split)
+  // What a second copy drawn over the first adds, to come to this much.
+  function added(under, wanted) {
+    return under < 1 ? Math.max(0, 1 - (1 - wanted) / (1 - under)) : 0
+  }
   // How far it is held off the pointer by the bounds.
   property real offsetX: 0
   property real offsetY: 0
@@ -41,11 +65,20 @@ Item {
     if (!(bounds.width > 0 && bounds.height > 0) || !source) return
     slideBack.stop()
     var left = position.x - grab.x, top = position.y - grab.y
-    offsetX = Math.max(bounds.x, Math.min(bounds.x + bounds.width - source.width, left)) - left
-    offsetY = Math.max(bounds.y, Math.min(bounds.y + bounds.height - source.height, top)) - top
+    var least = Qt.point(bounds.x, bounds.y)
+    var most = Qt.point(bounds.x + bounds.width - source.width, bounds.y + bounds.height - source.height)
+    if (keepShowing >= 0) {
+      least = Qt.point(bounds.x + keepShowing - source.width, bounds.y + keepTop)
+      most = Qt.point(bounds.x + bounds.width - keepShowing, bounds.y + bounds.height - keepShowing)
+    }
+    offsetX = Math.max(least.x, Math.min(most.x, left)) - left
+    offsetY = Math.max(least.y, Math.min(most.y, top)) - top
   }
   onPositionChanged: keepInside()
-  onBoundsChanged: keepInside()
+  onBoundsChanged: {
+    if (bounds.width > 0 && bounds.height > 0) splitArea = bounds
+    keepInside()
+  }
   onBoundedChanged: if (!bounded && (offsetX !== 0 || offsetY !== 0)) slideBack.restart()
   onSourceChanged: {
     slideBack.stop()
@@ -63,6 +96,7 @@ Item {
   visible: !!source
 
   ShaderEffectSource {
+    id: copy
     sourceItem: ghost.source
     hideSource: !ghost.keepSource
     width: ghost.source ? ghost.source.width : 0
@@ -72,7 +106,7 @@ Item {
     // Small and see-through, so the workspace it's over can be seen. It shrinks
     // toward the spot it was picked up by, which stays under the pointer. Just
     // under 30%, because Hyprland blurs behind anything above that on glassy.
-    opacity: (1 - (1 - 0.29) * ghost.shrunk) * (1 - ghost.fade)
+    opacity: ghost.outsideOpacity
     transform: Scale {
       origin.x: ghost.grab.x
       origin.y: ghost.grab.y
@@ -83,6 +117,7 @@ Item {
 
   // Its border, drawn apart so it stays thin and solid at any size and opacity.
   Rectangle {
+    id: outline
     x: ghost.position.x - ghost.grab.x * ghost.itemScale + ghost.offsetX
     y: ghost.position.y - ghost.grab.y * ghost.itemScale + ghost.offsetY
     width: ghost.source ? ghost.source.width * ghost.itemScale : 0
@@ -91,6 +126,44 @@ Item {
     color: "transparent"
     border.width: 1
     border.color: Commons.Color.accent
-    opacity: 1 - ghost.fade
+    opacity: ghost.outsideBorder
+  }
+
+  // The part of it inside the bounds, drawn again over the above so that the
+  // two come to how solid it is there.
+  Item {
+    visible: ghost.split > 0 && !!ghost.source
+    x: ghost.splitArea.x
+    y: ghost.splitArea.y
+    width: ghost.splitArea.width
+    height: ghost.splitArea.height
+    clip: true
+
+    ShaderEffectSource {
+      sourceItem: ghost.source
+      x: copy.x - ghost.splitArea.x
+      y: copy.y - ghost.splitArea.y
+      width: copy.width
+      height: copy.height
+      opacity: ghost.added(ghost.outsideOpacity, ghost.carriedOpacity * (1 + (ghost.solid - 1) * ghost.split))
+      transform: Scale {
+        origin.x: ghost.grab.x
+        origin.y: ghost.grab.y
+        xScale: ghost.itemScale
+        yScale: ghost.itemScale
+      }
+    }
+
+    Rectangle {
+      x: outline.x - ghost.splitArea.x
+      y: outline.y - ghost.splitArea.y
+      width: outline.width
+      height: outline.height
+      radius: outline.radius
+      color: "transparent"
+      border.width: 1
+      border.color: Commons.Color.accent
+      opacity: ghost.added(ghost.outsideBorder, (1 - ghost.fade) * (1 + (ghost.solid - 1) * ghost.split))
+    }
   }
 }

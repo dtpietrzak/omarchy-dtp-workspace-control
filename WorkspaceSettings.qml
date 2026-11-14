@@ -17,6 +17,10 @@ Scope {
   // of it left showing so it is never out of sight. Its top is never closer
   // to the top edge than its title bar is tall, so that is always in reach.
   readonly property int keepShowing: 50
+  // How solid a carried window's picture is on the workspace it would land
+  // on, and how faint the part of it that hangs past that workspace's edge.
+  readonly property real carrySolid: 0.75
+  readonly property real carryFaint: 0.15
   function keepX(left, width, screenWidth) {
     return Math.max(keepShowing - width, Math.min(screenWidth - keepShowing, left))
   }

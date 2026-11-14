@@ -18,6 +18,8 @@ Item {
   // the window: above it, as tall and in the color it is set to. Left out
   // for a box with none, as on a card.
   property var titleBars: null
+  // How faintly the window shows inside the outline.
+  property real pictureOpacity: 0.5
   readonly property int barHeight: titleBars ? titleBars.titleBarHeight : 0
 
   visible: !!spot
@@ -38,7 +40,7 @@ Item {
       sourceComponent: ScreencopyView {
         captureSource: box.toplevel.wayland
         live: true
-        opacity: 0.5
+        opacity: box.pictureOpacity
         constraintSize: Qt.size(Math.ceil(box.width), Math.ceil(box.height))
       }
     }
