@@ -364,6 +364,8 @@ Rectangle {
       anchors.leftMargin: root.textInset
       anchors.rightMargin: root.textInset + (shortcutHint.visible ? shortcutHint.implicitWidth + root.edge : 0)
       focus: root.opened && !root.yieldKeys && !root.browsing
+      // Read-only so Qt never reads the clipboard on its own; KeyTyping types.
+      readOnly: true
       clip: true
       selectByMouse: true
       color: Commons.Color.foreground
@@ -397,9 +399,15 @@ Rectangle {
           if (root.popupOpen) root.escapePressed()
           else if (root.query !== "") root.clear()
           else root.escapePressed()
-        } else return
+        } else if (!typing.handle(event)) return
         event.accepted = true
       }
+    }
+
+    KeyTyping {
+      id: typing
+      field: field
+      cursorColor: Commons.Color.foreground
     }
 
     Text {

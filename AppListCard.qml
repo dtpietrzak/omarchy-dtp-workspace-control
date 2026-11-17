@@ -251,7 +251,7 @@ Item {
     } else if (event.key === Qt.Key_Escape) {
       if (query !== "") setQuery("")
       else dismissed()
-    } else return
+    } else if (!typing.handle(event)) return
     event.accepted = true
   }
 
@@ -346,7 +346,8 @@ Item {
       focus: root.opened
       clip: true
       selectByMouse: true
-      readOnly: !!root.menuApp || !!root.uninstallApp
+      // Read-only so Qt never reads the clipboard on its own; KeyTyping types.
+      readOnly: true
       color: Commons.Color.foreground
       selectionColor: Style.selectionFillFor(Commons.Color.foreground, Commons.Color.accent)
       selectedTextColor: Commons.Color.foreground
@@ -355,6 +356,12 @@ Item {
       onTextChanged: root.setQuery(text)
       Keys.priority: Keys.BeforeItem
       Keys.onPressed: event => root.handleKey(event)
+    }
+
+    KeyTyping {
+      id: typing
+      field: field
+      cursorColor: Commons.Color.foreground
     }
 
     Text {
