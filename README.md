@@ -1,5 +1,7 @@
 # Workspace Control for Omarchy
 
+![Workspace Control: drag and drop windows across workspaces, or see at a glance which windows are on which workspace](preview.png)
+
 A better workspace row for the Omarchy bar, and a panel of live workspaces on a four finger swipe up. See every window on every workspace, then move, focus, close and reorder them by clicking and dragging.
 
 ![Hovering workspaces on the bar for live previews, and moving windows around in the workspace panel](screenshots/workspace-control.gif)
