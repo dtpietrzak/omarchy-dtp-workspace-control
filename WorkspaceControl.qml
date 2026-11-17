@@ -2396,8 +2396,8 @@ Item {
                 radius: Style.cornerRadius
                 // The copy of a row that is carried off the list brings a backing along.
                 color: root.dragTile === row ? Commons.Color.background
-                  : row.picked || rowMouse.containsMouse || closeButton.hovered ? Style.hoverFill : "transparent"
-                border.width: root.dragTile === row || row.picked || rowMouse.containsMouse || closeButton.hovered ? 1 : 0
+                  : row.picked || rowMouse.containsMouse || closeButton.hovered || minimizeButton.hovered ? Style.hoverFill : "transparent"
+                border.width: root.dragTile === row || row.picked || rowMouse.containsMouse || closeButton.hovered || minimizeButton.hovered ? 1 : 0
                 border.color: Commons.Color.accent
               }
 
@@ -2416,7 +2416,7 @@ Item {
                 id: title
                 anchors.left: icon.right
                 anchors.leftMargin: windowList.edge
-                anchors.right: closeButton.left
+                anchors.right: minimizeButton.left
                 anchors.rightMargin: windowList.edge
                 anchors.verticalCenter: parent.verticalCenter
                 elide: Text.ElideRight
@@ -2456,6 +2456,16 @@ Item {
                   else if (containsMouse) root.clickWindow(root.listId, row.modelData)
                 }
                 onCanceled: if (root.dragTile === row) root.dragTile = null
+              }
+
+              CloseButton {
+                id: minimizeButton
+                anchors.right: closeButton.left
+                anchors.rightMargin: windowList.edge / 2
+                anchors.verticalCenter: parent.verticalCenter
+                size: windowList.iconSize
+                glyph: "󰍵"
+                onClicked: workspaceApps.minimizeWindow(row.modelData)
               }
 
               CloseButton {

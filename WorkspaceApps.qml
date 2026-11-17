@@ -76,6 +76,13 @@ QtObject {
     if (address !== "") Hyprland.dispatch('hl.dsp.window.close({ window = "address:' + address + '" })')
   }
 
+  // Send a window to the minimized workspace, the same as Super+M. Only floating
+  // workspaces have the dock to bring it back from, so others are left alone.
+  function minimizeWindow(toplevel) {
+    var address = windowAddress(toplevel)
+    if (address !== "") Quickshell.execDetached(["omarchy-hyprland-window-minimize", address])
+  }
+
   // The windows waiting on Omarchy's minimized workspace.
   readonly property var minimizedWindows: {
     var values = Hyprland.toplevels.values

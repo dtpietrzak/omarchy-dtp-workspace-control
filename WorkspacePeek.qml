@@ -450,8 +450,8 @@ Item {
             radius: Style.cornerRadius
             // A row being dragged leaves the card, so it brings a backing along.
             color: root.dragItem === row ? Commons.Color.background
-              : rowMouse.containsMouse || closeButton.hovered ? Style.hoverFill : "transparent"
-            border.width: rowMouse.containsMouse || closeButton.hovered ? 1 : 0
+              : rowMouse.containsMouse || closeButton.hovered || minimizeButton.hovered ? Style.hoverFill : "transparent"
+            border.width: rowMouse.containsMouse || closeButton.hovered || minimizeButton.hovered ? 1 : 0
             border.color: Commons.Color.accent
           }
 
@@ -470,7 +470,7 @@ Item {
             id: title
             anchors.left: icon.right
             anchors.leftMargin: root.edge
-            anchors.right: closeButton.left
+            anchors.right: minimizeButton.left
             anchors.rightMargin: root.edge
             anchors.verticalCenter: parent.verticalCenter
             elide: Text.ElideRight
@@ -493,6 +493,16 @@ Item {
               if (!root.endDrag(row) && containsMouse) root.windowChosen(row.modelData)
             }
             onCanceled: root.cancelDrag(row)
+          }
+
+          CloseButton {
+            id: minimizeButton
+            anchors.right: closeButton.left
+            anchors.rightMargin: root.edge / 2
+            anchors.verticalCenter: parent.verticalCenter
+            size: root.iconSize
+            glyph: "󰍵"
+            onClicked: workspaceApps.minimizeWindow(row.modelData)
           }
 
           CloseButton {
