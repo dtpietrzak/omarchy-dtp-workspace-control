@@ -2464,7 +2464,7 @@ Item {
                 anchors.rightMargin: windowList.edge / 2
                 anchors.verticalCenter: parent.verticalCenter
                 size: windowList.iconSize
-                glyph: "󰍵"
+                glyph: "󰍴"
                 onClicked: workspaceApps.minimizeWindow(row.modelData)
               }
 

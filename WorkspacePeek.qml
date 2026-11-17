@@ -501,7 +501,7 @@ Item {
             anchors.rightMargin: root.edge / 2
             anchors.verticalCenter: parent.verticalCenter
             size: root.iconSize
-            glyph: "󰍵"
+            glyph: "󰍴"
             onClicked: workspaceApps.minimizeWindow(row.modelData)
           }
 
