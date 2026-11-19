@@ -4,6 +4,7 @@ import Quickshell.Io
 import qs.Commons
 import qs.Commons as Commons
 import "AppSearch.js" as AppSearch
+import "Favorites.js" as Favorites
 
 // Slides down from the top of the screen with the workspace panel. One
 // character searches apps the same way the app list does, and the background
@@ -180,6 +181,12 @@ Rectangle {
     return id
   }
 
+  // Shared with the favorites bar widget, the DTP app list and the DTP menu.
+  FavoritesStore {
+    id: favorites
+    onAppsChanged: root.rebuild(false)
+  }
+
   function openHit(hit) {
     var id = root.safeId(hit && hit.id)
     if (!id) return
@@ -278,6 +285,8 @@ Rectangle {
         command: command
       })
     }
+    // Favorites first: the first row sits beside the search field.
+    next = Favorites.favoritesFirst(next, function(app) { return root.safeId(app.id) }, favorites.map)
     root.hits = next
     root.searchIndex = resetSelection || root.searchIndex < 0
       ? (next.length > 0 ? 0 : -1)
@@ -520,7 +529,7 @@ Rectangle {
         anchors.left: icon.right
         anchors.leftMargin: root.edge
         anchors.right: parent.right
-        anchors.rightMargin: root.edge
+        anchors.rightMargin: root.edge * 2 + Math.round(root.iconSize * 0.7)
         anchors.verticalCenter: parent.verticalCenter
         elide: Text.ElideRight
         textFormat: Text.PlainText
@@ -537,6 +546,17 @@ Rectangle {
         acceptedButtons: Qt.LeftButton | Qt.RightButton
         onContainsMouseChanged: if (containsMouse) root.searchIndex = row.index
         onClicked: mouse => { if (mouse.button === Qt.LeftButton) root.openHit(row.modelData) }
+      }
+
+      // Above the row's mouse area, so a click here stars the app instead of
+      // opening it.
+      Star {
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.right: parent.right
+        anchors.rightMargin: root.edge
+        size: Math.round(root.iconSize * 0.7)
+        favorited: favorites.isFavorite(root.safeId(row.modelData.id))
+        onToggled: favorites.toggle(root.safeId(row.modelData.id))
       }
     }
   }

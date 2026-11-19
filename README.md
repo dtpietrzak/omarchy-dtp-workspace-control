@@ -56,6 +56,8 @@ The swipe stays registered, doing nothing, until Hyprland next reloads. If you t
 - Hover a workspace with windows for a card with a live preview and a list of its windows. Click a window in either to go to it, use its × to close it, or drag it onto a number to move it there without leaving where you are. Drag it out onto the desktop to bring it to the workspace you're on; a floating window lands where you let go, shown by an outline as you carry it.
 - The ... after the last number lists minimized windows. Click one or its ^ to bring it to the workspace you're on, use its × to close it, drag it onto a number to send it there, or drag it out onto the desktop to bring it to the workspace you're on.
 
+- Each app in the App List and in the panel's search results has a star on the right: faded grey, white under the pointer, gold once the app is a favorite. Clicking it toggles the favorite. Favorites are kept in `~/.config/omarchy/favorites.json`, shared with the DTP app list and menu, and shown on the bar by [omarchy-dtp-favorites](https://github.com/dtpietrzak/omarchy-dtp-favorites). `Favorites.js`, `FavoritesStore.qml` and `Star.qml` are copies kept identical across those repos.
+
 ## In the panel
 
 ![The workspace panel with a live view of each workspace](screenshots/panel-carry.png)

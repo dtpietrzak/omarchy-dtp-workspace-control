@@ -5,6 +5,7 @@ import Quickshell.Io
 import qs.Commons
 import qs.Commons as Commons
 import "AppSearch.js" as AppSearch
+import "Favorites.js" as Favorites
 
 // What the bar's apps button opens: every app, a search field on the top line,
 // and a right-click menu to open, keep in the dock, or uninstall. The same list
@@ -73,6 +74,12 @@ Item {
     return id
   }
 
+  // Shared with the favorites bar widget, the DTP app list and the DTP menu.
+  FavoritesStore {
+    id: favorites
+    onAppsChanged: root.rebuild(false)
+  }
+
   function normalizeId(value) {
     var id = String(value || "").trim()
     if (id.slice(-8) === ".desktop") id = id.slice(0, -8)
@@ -137,6 +144,8 @@ Item {
         command: command
       })
     }
+    // Favorites first: the first row sits beside the search field.
+    next = Favorites.favoritesFirst(next, function(app) { return root.safeId(app.id) }, favorites.map)
     apps = next
     selectedIndex = resetSelection || selectedIndex < 0
       ? (next.length > 0 ? 0 : -1)
@@ -469,7 +478,7 @@ Item {
         anchors.left: icon.right
         anchors.leftMargin: root.edge
         anchors.right: parent.right
-        anchors.rightMargin: root.edge
+        anchors.rightMargin: root.edge * 2 + Math.round(root.iconSize * 0.7)
         anchors.verticalCenter: parent.verticalCenter
         elide: Text.ElideRight
         textFormat: Text.PlainText
@@ -493,6 +502,20 @@ Item {
           }
           root.menuApp = null
           root.launch(row.modelData)
+        }
+      }
+
+      // Above the row's mouse area, so a click here stars the app instead of
+      // opening it.
+      Star {
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.right: parent.right
+        anchors.rightMargin: root.edge
+        size: Math.round(root.iconSize * 0.7)
+        favorited: favorites.isFavorite(root.safeId(row.modelData.id))
+        onToggled: {
+          root.menuApp = null
+          favorites.toggle(root.safeId(row.modelData.id))
         }
       }
     }
