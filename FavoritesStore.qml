@@ -8,14 +8,17 @@ import "Favorites.js" as Favorites
 // on the bar at once. The same file ships in omarchy-dtp-favorites,
 // omarchy-dtp-app-list and omarchy-dtp-menu.
 //
-// With no file yet, the first copy to load writes the defaults: Files,
-// Chromium and the default terminal.
+// With no file yet, only the bar widget (seedDefaults: true) writes the
+// defaults: Files, Chromium and the default terminal. The app lists treat a
+// missing file as no favorites, and their first star creates it with just
+// that app.
 Item {
   id: store
 
   property var apps: []
   readonly property var map: Favorites.toMap(store.apps)
   property bool missing: false
+  property bool seedDefaults: false
   readonly property string path: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config"))
     + "/omarchy/favorites.json"
 
@@ -48,9 +51,22 @@ Item {
     }
     onLoadFailed: function(error) {
       store.missing = true
-      store.apps = Favorites.defaults("")
-      if (!terminalProbe.running) terminalProbe.running = true
+      if (store.seedDefaults) {
+        store.apps = Favorites.defaults("")
+        if (!terminalProbe.running) terminalProbe.running = true
+      } else if (store.apps.length > 0) {
+        store.apps = []
+      }
     }
+  }
+
+  // A file another copy creates later may not raise a change on a path that
+  // did not exist yet, so look again now and then until it shows up.
+  Timer {
+    interval: 3000
+    repeat: true
+    running: store.missing && !store.seedDefaults
+    onTriggered: file.reload()
   }
 
   // The default terminal, as Omarchy's own `omarchy default terminal` reads it.
